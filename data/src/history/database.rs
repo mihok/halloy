@@ -203,6 +203,13 @@ struct SearchableMessage {
 }
 
 impl Database {
+    /// Browser: the whole database as bytes, for persisting the in-memory
+    /// database (see storage::worker).
+    #[cfg(target_arch = "wasm32")]
+    pub fn snapshot(&self) -> Result<Vec<u8>, Error> {
+        Ok(self.connection.serialize(rusqlite::MAIN_DB)?.to_vec())
+    }
+
     pub fn new(mut connection: Connection) -> Result<Self, Error> {
         connection.busy_timeout(BUSY_TIMEOUT)?;
         connection.set_prepared_statement_cache_capacity(128);

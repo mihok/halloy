@@ -37,6 +37,7 @@ only client-side work is a transport.
 | iced / wgpu / winit on wasm | **Working.** Renders through wgpu on WebGL2 (verified with software WebGL in headless Chromium). |
 | `data` crate on wasm | **Compiles, clippy-clean.** Native workspace (app included) builds, clippy-clean, 174 data tests pass. The browser shims are checked at runtime in headless Chromium by `web/smoke` (`platform_check`: in-memory fs, timers, tasks: 11/11 pass). See "data crate: how it's ported" below. |
 | `halloy` app crate on wasm | **Boots and chats.** Built with `cargo build --release --target wasm32-unknown-unknown -p halloy` + `wasm-bindgen`; `web/app/index.html` hosts it. Verified end to end in headless Chromium through the slashcheer login gate to Ergo 2.19.1: connects as the gate's account with no credentials, auto-joins a channel, shows another user's messages and nick list, and a message typed in Halloy reaches the other user. No page errors. Desktop build, clippy and tests unchanged. |
+| Persistence | **Done.** Config, drafts, dashboard layout, window state and chat history survive reloads (IndexedDB). Verified in Chromium with a persistent profile: history and layout restored with the server unreachable; an unsent draft restored after reload. |
 | Build + deploy to `/client/` | Not started. slashcheer-irc serves `web/dist/client/` when `web_client_enabled = true`; plan: this repo's CI publishes the wasm bundle as a release asset and slashcheer-irc's deploy pulls a pinned version into that directory. |
 
 ## data crate: how it's ported
@@ -105,20 +106,38 @@ Fixed while booting the app (all browser-only):
 - Desktop `main()` is split: its setup stays, and the font/settings/daemon
   launch moved into `run()`, shared with the browser.
 
+## Persistence: how it works
+
+- `data::platform::fs::persist` mirrors the in-memory filesystem's
+  `/halloy/config` and `/halloy/data` to an IndexedDB store (`halloy` /
+  `files`, key = path, value = bytes). `init()` (called first thing in
+  `src/web.rs`) loads every saved file; after that, every mutating
+  filesystem call marks its path dirty and a 400 ms debounce writes the
+  current contents (or a delete) in one transaction. `pagehide` flushes
+  too. `/halloy/cache` (previews, downloads) is not persisted.
+- History: SQLite's OPFS backend (`sqlite-wasm-vfs` sahpool) needs a
+  dedicated Worker and Halloy runs on the main thread, so the history
+  database stays in memory and the history worker snapshots it
+  (`rusqlite` serialize) to `/halloy/data/history.sqlite3` at most 5 s after
+  a change and on exit; startup deserializes it. Worst case after a crash
+  or closed tab: the last ~5 s of history, which the server's CHATHISTORY
+  backfills on the next join.
+- History search opens a read-only copy of the latest snapshot per search,
+  so results can trail the live view by up to 5 s.
+- Drafts are saved by Halloy's own logic 10 s after the first edit.
+
 ## Known gaps (next)
 
-- **Persistence.** The virtual filesystem and SQLite history live for the
-  page session only. Next: persist config, drafts and dashboard state to
-  `localStorage`/IndexedDB, and history to SQLite on OPFS
-  (`sqlite-wasm-rs` supports it). Server `CHATHISTORY` already backfills
-  channels on load.
+- **Snapshot cost.** Each history snapshot serializes the whole database;
+  fine for a few MB, worth revisiting (incremental saves, or moving the
+  history worker into a Web Worker with OPFS) if histories get large.
+- **Storage limits.** IndexedDB quota is browser-managed; Halloy doesn't yet
+  request persistent storage (`navigator.storage.persist()`) or report
+  quota errors in the UI.
 - **Bundle size.** ~36 MB wasm unoptimized (fonts, sounds, emoji). Next:
   `wasm-opt -Oz`, drop unused fonts/sounds for web, brotli on the CDN.
 - **Downloads.** `save_file` (save image, save theme, DCC) returns `None`;
   map it to browser downloads.
-- **History search.** The search worker opens its own read-only connection
-  to the on-disk database, which doesn't exist in the browser; search
-  returns an error until history is persisted.
 - **Clipboard, IME, touch.** Not yet exercised beyond basic typing.
 - **WebGPU.** Only WebGL2 was exercised (headless Chromium has no WebGPU).
 
@@ -142,7 +161,7 @@ Counts are files that use each API (data/src + src).
 
 1. ~~**`data` compiles on wasm.**~~ Done (see above).
 2. ~~**App boots in the browser.**~~ Done (see above).
-3. **Persistence.** Settings and themes in `localStorage`, buffers/history
+3. ~~**Persistence.**~~ Done (see above). Originally: settings and themes in `localStorage`, buffers/history
    via sqlite-wasm (OPFS) or IndexedDB, plus server `CHATHISTORY`.
 4. **Integration polish.** `/api/client-config` from the Worker (network
    name, account, channels), Web Notifications, link previews via fetch,

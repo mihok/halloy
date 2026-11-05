@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
 use futures::channel::oneshot;
-use rusqlite::{Connection, InterruptHandle, OpenFlags};
+#[cfg(not(target_arch = "wasm32"))]
+use rusqlite::OpenFlags;
+use rusqlite::{Connection, InterruptHandle};
 
 use crate::environment;
 use crate::history::{database, search};
@@ -127,6 +129,25 @@ impl Searcher {
     }
 }
 
+/// Browser: search a read-only copy of the latest history snapshot (the
+/// live database is in memory in the history worker). Re-read per search so
+/// results follow the snapshots.
+#[cfg(target_arch = "wasm32")]
+fn open<'a>(
+    connection: &'a mut Option<Connection>,
+    _path: Option<&Path>,
+    _interrupt: &Mutex<Option<InterruptHandle>>,
+) -> Result<&'a Connection, search::Error> {
+    let bytes = super::worker::snapshot::read().ok_or_else(|| {
+        search::Error::Database("no saved history to search yet".to_string())
+    })?;
+    let opened = super::worker::snapshot::load(bytes, true)
+        .map_err(|error| search::Error::Database(error.to_string()))?;
+    *connection = Some(opened);
+    Ok(connection.as_ref().expect("opened search connection"))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn open<'a>(
     connection: &'a mut Option<Connection>,
     path: Option<&Path>,

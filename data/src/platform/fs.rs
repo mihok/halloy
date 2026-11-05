@@ -102,9 +102,11 @@ mod memory {
             if !v.dirs.contains(&parent) {
                 return Err(not_found(&parent));
             }
-            v.files.insert(p, (contents.as_ref().to_vec(), now()));
+            v.files
+                .insert(p.clone(), (contents.as_ref().to_vec(), now()));
             Ok(())
         })
+        .inspect(|()| persist::touched(&p))
     }
 
     pub async fn write(
@@ -153,6 +155,7 @@ mod memory {
         VFS.with_borrow_mut(|v| {
             v.files.remove(&p).map(|_| ()).ok_or_else(|| not_found(&p))
         })
+        .inspect(|()| persist::touched(&p))
     }
 
     pub async fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
@@ -166,8 +169,12 @@ mod memory {
         let (from, to) = (norm(from.as_ref()), norm(to.as_ref()));
         VFS.with_borrow_mut(|v| {
             let f = v.files.remove(&from).ok_or_else(|| not_found(&from))?;
-            v.files.insert(to, f);
+            v.files.insert(to.clone(), f);
             Ok(())
+        })
+        .inspect(|()| {
+            persist::touched(&from);
+            persist::touched(&to);
         })
     }
 
@@ -409,6 +416,190 @@ mod memory {
         }
     }
 
+    /// Durable storage for the in-memory filesystem: files under
+    /// [`PERSISTED`] are mirrored to IndexedDB. `init` loads them before the
+    /// app reads its config; afterwards every change marks the path dirty and
+    /// a short debounce (plus `pagehide`) flushes the current contents.
+    pub mod persist {
+        use std::cell::RefCell;
+        use std::collections::BTreeSet;
+        use std::path::{Path, PathBuf};
+        use std::time::Duration;
+
+        use wasm_bindgen::closure::Closure;
+        use wasm_bindgen::{JsCast, JsValue};
+        use wasm_bindgen_futures::JsFuture;
+        use web_sys::{IdbDatabase, IdbRequest, IdbTransactionMode};
+
+        use super::{VFS, norm};
+
+        /// Directories whose contents survive a reload. The cache (image
+        /// previews, downloads) is deliberately left out.
+        pub const PERSISTED: &[&str] = &["/halloy/config", "/halloy/data"];
+
+        const DB_NAME: &str = "halloy";
+        const STORE: &str = "files";
+        const DEBOUNCE: Duration = Duration::from_millis(400);
+
+        thread_local! {
+            static DB: RefCell<Option<IdbDatabase>> = const { RefCell::new(None) };
+            static DIRTY: RefCell<BTreeSet<PathBuf>> = const { RefCell::new(BTreeSet::new()) };
+            static SCHEDULED: RefCell<bool> = const { RefCell::new(false) };
+        }
+
+        fn persisted(path: &Path) -> bool {
+            PERSISTED.iter().any(|root| path.starts_with(root))
+        }
+
+        /// Called by every mutating filesystem operation.
+        pub(super) fn touched(path: &Path) {
+            if !persisted(path) || DB.with_borrow(Option::is_none) {
+                return;
+            }
+            DIRTY.with_borrow_mut(|d| d.insert(path.to_path_buf()));
+            if SCHEDULED.replace(true) {
+                return;
+            }
+            wasm_bindgen_futures::spawn_local(async {
+                crate::platform::time::sleep(DEBOUNCE).await;
+                SCHEDULED.set(false);
+                flush();
+            });
+        }
+
+        /// Write every dirty path's current state (or its deletion).
+        pub fn flush() {
+            let dirty = DIRTY.take();
+            if dirty.is_empty() {
+                return;
+            }
+            let result = DB.with_borrow(|db| -> Result<(), JsValue> {
+                let Some(db) = db else { return Ok(()) };
+                let tx = db.transaction_with_str_and_mode(
+                    STORE,
+                    IdbTransactionMode::Readwrite,
+                )?;
+                let store = tx.object_store(STORE)?;
+                for path in &dirty {
+                    let key = JsValue::from_str(&path.to_string_lossy());
+                    let data = VFS.with_borrow(|v| {
+                        v.files.get(path).map(|(bytes, _)| bytes.clone())
+                    });
+                    match data {
+                        Some(bytes) => {
+                            let value =
+                                js_sys::Uint8Array::from(bytes.as_slice());
+                            store.put_with_key(&value, &key)?;
+                        }
+                        None => {
+                            store.delete(&key)?;
+                        }
+                    }
+                }
+                Ok(())
+            });
+            if let Err(error) = result {
+                log::error!(
+                    "saving files to browser storage failed: {error:?}"
+                );
+            }
+        }
+
+        async fn request(request: &IdbRequest) -> Result<JsValue, JsValue> {
+            let request = request.clone();
+            let promise = js_sys::Promise::new(&mut |resolve, reject| {
+                let done = request.clone();
+                let on_success = Closure::once_into_js(move || {
+                    let _ = resolve.call1(
+                        &JsValue::NULL,
+                        &done.result().unwrap_or(JsValue::UNDEFINED),
+                    );
+                });
+                let on_error = Closure::once_into_js(move || {
+                    let _ = reject.call1(
+                        &JsValue::NULL,
+                        &JsValue::from_str("IndexedDB request failed"),
+                    );
+                });
+                request.set_onsuccess(Some(on_success.unchecked_ref()));
+                request.set_onerror(Some(on_error.unchecked_ref()));
+            });
+            JsFuture::from(promise).await
+        }
+
+        /// Open the store and load every saved file into the in-memory
+        /// filesystem. Call once at startup, before anything reads files.
+        /// Without IndexedDB (private browsing, disabled storage) the app
+        /// still runs; nothing is persisted.
+        pub async fn init() -> Result<usize, String> {
+            let err = |e: JsValue| format!("{e:?}");
+            let factory = web_sys::window()
+                .ok_or("no window")?
+                .indexed_db()
+                .map_err(err)?
+                .ok_or("IndexedDB unavailable")?;
+            let open = factory.open_with_u32(DB_NAME, 1).map_err(err)?;
+            let on_upgrade = Closure::once_into_js({
+                let open = open.clone();
+                move || {
+                    if let Ok(db) = open
+                        .result()
+                        .and_then(wasm_bindgen::JsCast::dyn_into::<IdbDatabase>)
+                        && !db.object_store_names().contains(STORE)
+                    {
+                        let _ = db.create_object_store(STORE);
+                    }
+                }
+            });
+            open.set_onupgradeneeded(Some(on_upgrade.unchecked_ref()));
+            let db: IdbDatabase =
+                request(&open).await.map_err(err)?.dyn_into().map_err(err)?;
+
+            let tx = db.transaction_with_str(STORE).map_err(err)?;
+            let store = tx.object_store(STORE).map_err(err)?;
+            let keys = request(&store.get_all_keys().map_err(err)?)
+                .await
+                .map_err(err)?;
+            let values =
+                request(&store.get_all().map_err(err)?).await.map_err(err)?;
+            let (keys, values) =
+                (js_sys::Array::from(&keys), js_sys::Array::from(&values));
+
+            let mut loaded = 0;
+            VFS.with_borrow_mut(|v| {
+                for (key, value) in keys.iter().zip(values.iter()) {
+                    let Some(path) =
+                        key.as_string().map(|k| norm(Path::new(&k)))
+                    else {
+                        continue;
+                    };
+                    if !persisted(&path) {
+                        continue;
+                    }
+                    let bytes = js_sys::Uint8Array::new(&value).to_vec();
+                    for dir in path.ancestors().skip(1) {
+                        v.dirs.insert(dir.to_path_buf());
+                    }
+                    v.files.insert(path, (bytes, super::now()));
+                    loaded += 1;
+                }
+            });
+
+            DB.set(Some(db));
+
+            // Last chance to save pending changes when the page goes away.
+            if let Some(window) = web_sys::window() {
+                let on_hide = Closure::<dyn FnMut()>::new(flush);
+                let _ = window.add_event_listener_with_callback(
+                    "pagehide",
+                    on_hide.as_ref().unchecked_ref(),
+                );
+                on_hide.forget();
+            }
+            Ok(loaded)
+        }
+    }
+
     // ---- file handles -------------------------------------------------
 
     /// An open file in the VFS. Reads and writes go straight to the shared
@@ -486,6 +677,7 @@ mod memory {
                 }
                 Ok(())
             })?;
+            persist::touched(&p);
             Ok(File {
                 path: p,
                 pos: 0,
@@ -524,6 +716,7 @@ mod memory {
                 f.0.resize(len as usize, 0);
                 Ok(())
             })
+            .inspect(|()| persist::touched(&self.path))
         }
     }
 
@@ -571,6 +764,9 @@ mod memory {
                 *modified = now();
                 Ok(buf.len())
             });
+            if res.is_ok() {
+                persist::touched(&this.path);
+            }
             Poll::Ready(res.inspect(|&n| this.pos += n as u64))
         }
         fn poll_flush(

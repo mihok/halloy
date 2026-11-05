@@ -7,6 +7,7 @@ use std::thread;
 use std::time::Duration;
 
 use hashbrown::HashSet;
+#[cfg(not(target_arch = "wasm32"))]
 use rusqlite::Connection;
 use web_time::Instant;
 
@@ -158,6 +159,7 @@ impl Worker {
 
             let mut state = init();
             let mut changed_at: Option<Instant> = None;
+            let mut unsaved_since: Option<Instant> = None;
             loop {
                 let received = match receiver.try_recv() {
                     Ok(command) => Ok(command),
@@ -180,7 +182,21 @@ impl Worker {
                         Err(mpsc::RecvTimeoutError::Timeout)
                     }
                 };
-                if step(&mut state, &mut changed_at, received) {
+                let had_command = received.is_ok();
+                let exit = step(&mut state, &mut changed_at, received);
+                if had_command {
+                    unsaved_since.get_or_insert_with(Instant::now);
+                }
+                // The database is in memory here; save it to the persisted
+                // virtual filesystem shortly after changes, and on exit.
+                if unsaved_since.is_some_and(|since| {
+                    exit || since.elapsed() >= snapshot::INTERVAL
+                }) {
+                    snapshot::save(&state);
+                    unsaved_since = None;
+                }
+                if exit {
+                    crate::platform::fs::persist::flush();
                     break;
                 }
             }
@@ -195,6 +211,87 @@ impl Worker {
 
     pub fn send(&self, command: Command) {
         enqueue(&self.sender, &self.queued, &self.events, command);
+    }
+}
+
+/// Browser: persist the in-memory history database as a file in the
+/// virtual filesystem, which `platform::fs::persist` mirrors to IndexedDB.
+#[cfg(target_arch = "wasm32")]
+pub(super) mod snapshot {
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    use rusqlite::{Connection, MAIN_DB};
+
+    use super::State;
+    use crate::environment;
+    use crate::history::database;
+
+    /// Save at most this long after the first unsaved change.
+    pub const INTERVAL: Duration = Duration::from_secs(5);
+
+    pub fn path() -> PathBuf {
+        environment::data_dir().join(database::FILE_NAME)
+    }
+
+    /// The last saved snapshot, if any.
+    pub fn read() -> Option<Vec<u8>> {
+        crate::platform::fs::sync::read(path()).ok()
+    }
+
+    /// Load a snapshot into a fresh in-memory connection.
+    pub fn load(
+        bytes: Vec<u8>,
+        read_only: bool,
+    ) -> rusqlite::Result<Connection> {
+        let mut connection = Connection::open_in_memory()?;
+        let len = bytes.len();
+        connection.deserialize_read_exact(
+            MAIN_DB,
+            std::io::Cursor::new(bytes),
+            len,
+            read_only,
+        )?;
+        Ok(connection)
+    }
+
+    /// An in-memory connection holding the last snapshot (or empty).
+    pub fn restore() -> rusqlite::Result<Connection> {
+        if let Some(bytes) = read() {
+            let len = bytes.len();
+            match load(bytes, false) {
+                Ok(connection) => {
+                    log::info!("restored saved history ({len} bytes)");
+                    return Ok(connection);
+                }
+                Err(error) => {
+                    log::error!("discarding unreadable saved history: {error}");
+                }
+            }
+        }
+        Connection::open_in_memory()
+    }
+
+    pub(super) fn save(state: &State) {
+        let Some(database) = &state.database else {
+            return;
+        };
+        let result =
+            database
+                .snapshot()
+                .map_err(|e| e.to_string())
+                .and_then(|bytes| {
+                    crate::platform::fs::sync::create_dir_all(
+                        environment::data_dir(),
+                    )
+                    .and_then(|()| {
+                        crate::platform::fs::sync::write(path(), bytes)
+                    })
+                    .map_err(|e| e.to_string())
+                });
+        if let Err(error) = result {
+            log::error!("saving history failed: {error}");
+        }
     }
 }
 
@@ -303,7 +400,7 @@ impl State {
         // Browser: no persistent SQLite storage yet; keep history for the
         // session (the server replays CHATHISTORY on reconnect).
         #[cfg(target_arch = "wasm32")]
-        let connection = Connection::open_in_memory()
+        let connection = snapshot::restore()
             .map_err(|e| format!("opening the history database: {e}"))?;
         #[cfg(not(target_arch = "wasm32"))]
         let connection = if let Some(path) = &self.path {

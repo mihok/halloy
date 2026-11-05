@@ -32,6 +32,15 @@ pub fn start() {
     crate::notification::prepare();
 
     wasm_bindgen_futures::spawn_local(async move {
+        // Restore saved config, drafts, layout and history before anything
+        // reads them. Without browser storage the app still runs, unsaved.
+        match fs::persist::init().await {
+            Ok(files) => log::info!("restored {files} saved files"),
+            Err(error) => log::warn!(
+                "browser storage unavailable; nothing will be saved: {error}"
+            ),
+        }
+
         if let Err(error) = seed_config().await {
             log::error!("could not write the default config: {error}");
         }
