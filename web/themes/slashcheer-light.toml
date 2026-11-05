@@ -1,5 +1,4 @@
-# slashcheer (light): the avatar's cream with indigo text and violet / lime
-# accents.
+# slashcheer (light): the avatar's cream with indigo text and coral accents.
 # Shipped with the web build (src/web.rs).
 
 [general]
@@ -8,13 +7,13 @@ horizontal_rule = "#e2dca8"
 horizontal_rule_text = "#6b5f93"
 scrollbar = "#d6cf98"
 unread_indicator = "#5a2db0"
-highlight_indicator = "#3f6b00"
+highlight_indicator = "#e8553f"
 border = "#d6cf98"
 
 [text]
 primary = "#1c024f"
 secondary = "#5d5280"
-tertiary = "#5a2db0"
+tertiary = "#c43d28"
 success = "#3f6b00"
 error = "#b8213a"
 warning = "#995400"
@@ -29,17 +28,17 @@ background_title_bar = "#f4f0c0"
 timestamp = "#7a7099"
 action = "#3f6b00"
 topic = "#5d5280"
-highlight = "#eef7b8"
+highlight = "#ffdcd1"
 code = "#8a2b6b"
-nickname = "#5a2db0"
+nickname = "#c43d28"
 nickname_offline = "#9a93b3"
 url = "#1f5fa8"
 selection = "#e3dbff"
-border_selected = "#1c024f"
+border_selected = "#fe7868"
 focus_border = "#1c024f"
 focus_background = "#f4f0c0"
-backlog_rule = "#5a2db0"
-backlog_rule_text = "#5a2db0"
+backlog_rule = "#e8553f"
+backlog_rule_text = "#c43d28"
 date_rule = "#e2dca8"
 date_rule_text = "#6b5f93"
 
