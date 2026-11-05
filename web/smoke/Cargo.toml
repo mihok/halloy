@@ -1,0 +1,22 @@
+# Browser smoke test for Halloy's wasm transport (irc/src/connection_web.rs):
+# connects through the same path the web client will use and reports the
+# IRC lines it receives. See web/PORTING.md for how to run it.
+[package]
+name = "halloy-web-smoke"
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+irc = { path = "../../irc" }
+futures = "0.3"
+wasm-bindgen = "=0.2.108"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["Window"] }
+
+[workspace]

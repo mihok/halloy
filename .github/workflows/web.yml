@@ -1,0 +1,28 @@
+name: web
+
+# Checks for the browser (wasm32) port. See web/PORTING.md.
+on:
+  push:
+    branches: [web-port]
+  pull_request:
+    branches: [web-port]
+
+permissions:
+  contents: read
+
+jobs:
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: irc crate builds for the browser
+        run: cargo check --target wasm32-unknown-unknown -p irc
+      - name: irc crate native tests
+        run: cargo test -p irc -p irc_proto
+      - name: smoke test bundle builds
+        working-directory: web/smoke
+        run: cargo build --release --target wasm32-unknown-unknown
