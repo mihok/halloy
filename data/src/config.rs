@@ -11,7 +11,6 @@ use rand_chacha::ChaCha8Rng;
 use serde::{Deserialize, Deserializer};
 use thiserror::Error;
 use tokio_stream::StreamExt;
-use tokio_stream::wrappers::ReadDirStream;
 
 pub use self::actions::Actions;
 pub use self::buffer::Buffer;
@@ -38,6 +37,7 @@ use crate::appearance::theme::Styles;
 use crate::appearance::{self, Appearance};
 use crate::audio::{self};
 use crate::config::metadata::Metadata;
+use crate::platform::fs::ReadDirStream;
 use crate::serde::{
     deserialize_f32_positive_float_maybe, deserialize_u8_positive_integer_maybe,
 };
@@ -392,7 +392,7 @@ impl Config {
     }
 
     pub async fn load() -> Result<Self, Error> {
-        use tokio::fs;
+        use crate::platform::fs;
 
         #[derive(Deserialize, Debug)]
         #[serde(untagged)]
@@ -642,7 +642,7 @@ impl Config {
     async fn load_appearance(
         theme_keys: (String, Option<String>),
     ) -> Result<Appearance, Error> {
-        use tokio::fs;
+        use crate::platform::fs;
 
         #[derive(Deserialize)]
         #[serde(untagged)]

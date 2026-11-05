@@ -1,11 +1,12 @@
 use std::cmp::Ordering;
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::anyhow;
 use hashbrown::HashMap;
 use irc::proto::command;
+use web_time::Instant;
 
 use crate::capabilities::{Capabilities, Capability};
 use crate::isupport::{self, WhoToken, WhoXPollParameters};

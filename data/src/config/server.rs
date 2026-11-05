@@ -7,7 +7,7 @@ use hashbrown::HashMap;
 use indexmap::IndexMap;
 use irc::connection;
 use serde::{Deserialize, Deserializer};
-use tokio::fs;
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::process::Command;
 
 use self::bouncer_network::Overrides;
@@ -20,6 +20,7 @@ use crate::config::inclusivities::{
 };
 use crate::config::logs::Timestamp;
 use crate::config::sidebar::OrderChannelsBy;
+use crate::platform::fs;
 use crate::serde::{
     deserialize_path_buf_with_path_transformations,
     deserialize_path_buf_with_path_transformations_maybe,
@@ -898,6 +899,20 @@ pub fn default_port(use_tls: bool, use_websocket: bool) -> NonZeroU16 {
     .expect("default ports are non-zero")
 }
 
+/// Browser build: there is no shell to run a password command in.
+#[cfg(target_arch = "wasm32")]
+pub async fn read_from_command(
+    pass_command: &str,
+    server: &str,
+) -> Result<String, config::Error> {
+    Err(config::Error::ExecutePasswordCommand {
+        server: server.to_string(),
+        command: pass_command.to_string(),
+        error: "running commands isn't supported in the browser".to_string(),
+    })
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn read_from_command(
     pass_command: &str,
     server: &str,

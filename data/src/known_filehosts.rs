@@ -54,7 +54,7 @@ impl KnownFilehosts {
         let mut urls: Vec<&str> =
             self.urls.iter().map(String::as_str).collect();
         urls.sort();
-        tokio::fs::write(path, urls.join("\n")).await?;
+        crate::platform::fs::write(path, urls.join("\n")).await?;
         Ok(())
     }
 }

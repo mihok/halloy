@@ -11,9 +11,9 @@ use rand::prelude::*;
 use rand_chacha::ChaChaRng;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
-use tokio::fs;
 
 use crate::config::buffer;
+use crate::platform::fs;
 
 const DEFAULT_THEME_NAME: &str = "Ferra";
 const DEFAULT_THEME_CONTENT: &str =

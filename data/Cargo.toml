@@ -17,13 +17,11 @@ message_tests = ["iced/tokio"]
 hashbrown = { workspace = true }
 thiserror = { workspace = true }
 futures = { workspace = true }
-tokio = { workspace = true, features = ["io-util", "fs", "rt"] }
 chrono = { workspace = true }
 bytes = { workspace = true }
 strum = { workspace = true }
 anyhow = { workspace = true }
 url = { workspace = true }
-tokio-stream = { workspace = true, features = ["time", "fs"] }
 timeago = { workspace = true }
 itertools = { workspace = true }
 emojis = { workspace = true }
@@ -33,14 +31,8 @@ rand_chacha = { workspace = true }
 palette = { workspace = true }
 log = { workspace = true }
 nucleo-matcher = { workspace = true }
-reqwest = { workspace = true }
 tokio-util = { workspace = true }
 const_format = { workspace = true }
-iced = { workspace = true, features = [
-    "sysinfo",
-    "tokio",
-    "wayland",
-] }
 nom = { workspace = true }
 percent-encoding = { workspace = true }
 keyring-core = "1"
@@ -67,7 +59,6 @@ derive_more = { version = "2.0.1", features = ["full"] }
 image = "0.25.10"
 gif = "0.14.1"
 html-escape = "0.3.0"
-display-info = "0.5.9"
 infer = "0.22"
 sys-locale = "0.3"
 mime_guess = "2.0.5"
@@ -76,6 +67,38 @@ idna = "1.1.0"
 unicode-security = "0.1.2"
 version-compare = "0.2"
 sanitize-filename = "0.6.0"
+# std::time::Instant on desktop, performance.now() in the browser
+web-time = "1"
+
+# Native (desktop) builds.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["io-util", "fs", "rt"] }
+tokio-stream = { workspace = true, features = ["time", "fs"] }
+reqwest = { workspace = true }
+iced = { workspace = true, features = [
+    "sysinfo",
+    "tokio",
+    "wayland",
+] }
+display-info = "0.5.9"
+
+# Web port (wasm32): no filesystem, processes, sockets or tokio runtime.
+# See web/PORTING.md.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { workspace = true, features = ["io-util", "rt", "sync", "macros"] }
+tokio-stream = { workspace = true }
+reqwest = { version = "0.13", default-features = false, features = [
+    "charset",
+    "json",
+    "stream",
+] }
+# wgpu over WebGL2 (WebGPU isn't in every browser yet), tiny-skia as the
+# software fallback, browser color handling.
+iced = { workspace = true, features = ["wgpu", "webgl", "tiny-skia", "web-colors"] }
+wasm-bindgen-futures = "0.4"
+wasmtimer = "0.4"
+# rand -> getrandom needs the browser's crypto.getRandomValues
+getrandom = { version = "0.4", features = ["wasm_js"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 apple-native-keyring-store = { version = "1", default-features = false, features = [

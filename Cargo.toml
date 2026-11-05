@@ -13,7 +13,7 @@ iosevka-font = []
 tor = ["data/tor"]
 
 [workspace]
-members = ["data", "ipc", "irc", "irc/proto"]
+members = ["data", "ipc", "irc", "irc/proto", "web/smoke"]
 
 [workspace.package]
 version = "0.1.0"

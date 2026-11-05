@@ -1623,6 +1623,7 @@ dependencies = [
  "fancy-regex 0.20.0",
  "flate2",
  "futures",
+ "getrandom 0.4.2",
  "gif",
  "hashbrown 0.17.1",
  "hex",
@@ -1669,6 +1670,9 @@ dependencies = [
  "url",
  "version-compare",
  "walkdir",
+ "wasm-bindgen-futures",
+ "wasmtimer",
+ "web-time",
  "windows-native-keyring-store",
  "xdg",
  "zbus-secret-service-keyring-store",
@@ -2958,6 +2962,21 @@ dependencies = [
  "uuid",
  "windows_exe_info",
  "zbus",
+]
+
+[[package]]
+name = "halloy-web-smoke"
+version = "0.1.0"
+dependencies = [
+ "data",
+ "futures",
+ "irc",
+ "js-sys",
+ "tokio",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "web-time",
 ]
 
 [[package]]
@@ -9906,6 +9925,7 @@ dependencies = [
  "thiserror 2.0.21",
  "wgpu-core-deps-apple",
  "wgpu-core-deps-emscripten",
+ "wgpu-core-deps-wasm",
  "wgpu-core-deps-windows-linux-android",
  "wgpu-hal",
  "wgpu-naga-bridge",
@@ -9926,6 +9946,15 @@ name = "wgpu-core-deps-emscripten"
 version = "29.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3487cd6293a963bc5c0c0396f6a2192043c50003c07f4efdccbad3d90ec9d819"
+dependencies = [
+ "wgpu-hal",
+]
+
+[[package]]
+name = "wgpu-core-deps-wasm"
+version = "29.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af1fb1798be2a912497d4c224f72d39bb0cb34af50e8bcc29865bc339c943059"
 dependencies = [
  "wgpu-hal",
 ]

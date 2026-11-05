@@ -4,7 +4,7 @@ use std::collections::BinaryHeap;
 use std::collections::binary_heap::PeekMut;
 use std::mem::take;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{fmt, io, iter};
 
 use anyhow::{Context as ErrorContext, Result, anyhow, bail};
@@ -14,6 +14,7 @@ use hashbrown::{HashMap, HashSet};
 use indexmap::IndexMap;
 use irc::proto::{self, Command, Tags, command, tags};
 use itertools::{Either, Itertools};
+use web_time::Instant;
 
 pub use self::map::{ClientsContext, Map, State, Status};
 pub use self::on_connect::on_connect;
@@ -5018,7 +5019,7 @@ impl Client {
         });
 
         if let Some(ref mut anti_flood) = self.anti_flood {
-            anti_flood.add_permits(now.into());
+            anti_flood.add_permits(now);
 
             for message in anti_flood.acquire_tokens() {
                 if let Err(e) = self.handle.try_send(message.into()) {

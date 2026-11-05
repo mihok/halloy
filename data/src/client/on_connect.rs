@@ -5,10 +5,10 @@ use std::time::Duration;
 use futures::StreamExt;
 use futures::stream::{self, BoxStream};
 use hashbrown::HashMap;
-use tokio::time;
 
 use crate::capabilities::Capabilities;
 use crate::features::Features;
+use crate::platform::time;
 use crate::user::Nick;
 use crate::{Command, Target, command, config, isupport, message};
 

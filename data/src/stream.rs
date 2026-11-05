@@ -13,12 +13,12 @@ use futures::{FutureExt, SinkExt, StreamExt, future, stream};
 use hashbrown::HashSet;
 use irc::proto::{self, Command, command};
 use irc::{CodecLog, Connection, codec, connection};
-use tokio::fs::{self, File};
 use tokio::io::{AsyncWriteExt, BufWriter};
-use tokio::time::{self, Instant, Interval, MissedTickBehavior};
 
 use crate::client::Client;
 use crate::config::server::IrcProtocolLogFormat;
+use crate::platform::fs::{self, File};
+use crate::platform::time::{self, Instant, Interval, MissedTickBehavior};
 use crate::server::Server;
 use crate::time::Posix;
 use crate::{config, environment, message, server};
@@ -138,9 +138,20 @@ pub fn run(
     let (sender, receiver) = mpsc::unbounded();
 
     // Spawn to unblock backend from iced stream which has backpressure
+    #[cfg(not(target_arch = "wasm32"))]
     let runner =
         stream::once(async { tokio::spawn(_run(server, proxy, sender)).await })
             .map(|_| unreachable!());
+    // Browser: no tokio runtime; spawn on the page's executor instead. The
+    // remote handle also cancels the task when this stream is dropped.
+    #[cfg(target_arch = "wasm32")]
+    let runner = stream::once(async {
+        use futures::FutureExt as _;
+        let (task, handle) = _run(server, proxy, sender).remote_handle();
+        crate::platform::spawn(task);
+        handle.await
+    })
+    .map(|_| unreachable!());
 
     stream::select(receiver, runner)
 }
@@ -663,13 +674,13 @@ async fn _run(
                             } else {
                                 // ping now to find out if the connection survived
                                 *network_probe = true;
-                                ping_time.reset_immediately();
+                                time::reset_immediately(ping_time);
                             }
                         }
                         Control::Resumed => {
                             // timers pause during sleep
                             *network_probe = true;
-                            ping_time.reset_immediately();
+                            time::reset_immediately(ping_time);
                         }
                         Control::AuthenticationFailed { error } => {
                             shutdown(&mut stream.connection).await;
@@ -821,7 +832,7 @@ async fn connect(
     let logger = if config.irc_protocol_log.enabled {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 
-        tokio::task::spawn(log_codec(
+        crate::platform::spawn(log_codec(
             server.clone(),
             config.irc_protocol_log,
             receiver,
@@ -864,7 +875,7 @@ async fn log_codec(
             let mut set_timeout_to_flush = false;
 
             while let Some(action) = if set_timeout_to_flush {
-                tokio::time::timeout(
+                crate::platform::time::timeout(
                     Duration::from_millis(500),
                     receiver.recv(),
                 )

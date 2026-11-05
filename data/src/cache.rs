@@ -7,11 +7,12 @@ use derive_more::AsRef;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::fs;
 use tokio_stream::StreamExt;
 use tokio_util::io::ReaderStream;
 pub(crate) use trim::TrimConfig;
 use url::Url;
+
+use crate::platform::fs;
 
 /// SHA256 digest of cache content.
 #[derive(Debug, Clone, Serialize, Deserialize, AsRef)]

@@ -6,13 +6,13 @@ use futures::channel::mpsc::Sender;
 use indexmap::IndexMap;
 use irc::proto;
 use serde::{Deserialize, Serialize};
-use tokio::fs;
 
 use crate::bouncer::BouncerNetwork;
 use crate::config::buffer::typing::Typing;
 use crate::config::server::{default_port, filehost, read_from_command};
 use crate::config::sidebar::{OrderBy, OrderChannelsBy};
 use crate::config::{self, Error, sidebar};
+use crate::platform::fs;
 
 pub type Handle = Sender<proto::Message>;
 

@@ -33,11 +33,52 @@ only client-side work is a transport.
 | Piece | State |
 |---|---|
 | `irc` crate on `wasm32` | **Done.** `irc/src/connection_web.rs` is a browser `WebSocket` transport with the same API as the native `connection.rs` (selected in `irc/src/lib.rs` with `#[cfg(target_arch = "wasm32")]`). Proxies/DCC/custom certs return `Error::Unsupported`. Native build and tests unchanged. |
-| End-to-end check | **Done.** `web/smoke/`: Halloy's `irc::Connection` + `irc::Codec` compiled to wasm, run in headless Chromium, through the real `IrcGate` to Ergo 2.19.1. Logged in as the bound account with no credentials, nick forced, `+Z` secure, real IP forwarded. |
+| End-to-end check | **Done.** `web/smoke/` (`smoke`): Halloy's `irc::Connection` + `irc::Codec` compiled to wasm, run in headless Chromium, through the real `IrcGate` to Ergo 2.19.1. Logged in as the bound account with no credentials, nick forced, `+Z` secure, real IP forwarded. |
 | iced / wgpu / winit on wasm | Compile (seen during `cargo check -p data --target wasm32-unknown-unknown`). Rendering not yet tried. |
-| `data` crate on wasm | **Next.** First error: tokio features `fs`/`process` (tokio on wasm supports only sync, macros, io-util, rt, time). |
-| `halloy` app crate on wasm | Not started. |
+| `data` crate on wasm | **Compiles, clippy-clean.** Native workspace (app included) builds, clippy-clean, 174 data tests pass. The browser shims are checked at runtime in headless Chromium by `web/smoke` (`platform_check`: in-memory fs, timers, tasks: 11/11 pass). See "data crate: how it's ported" below. |
+| `halloy` app crate on wasm | **Next.** |
 | Build + deploy to `/client/` | Not started. slashcheer-irc serves `web/dist/client/` when `web_client_enabled = true`; plan: this repo's CI publishes the wasm bundle as a release asset and slashcheer-irc's deploy pulls a pinned version into that directory. |
+
+## data crate: how it's ported
+
+All changes are `cfg(target_arch = "wasm32")`-gated; desktop code paths are
+unchanged. New code is in `data/src/platform/`:
+
+| Shim | Desktop | Browser |
+|---|---|---|
+| `platform::fs` | re-exports `tokio::fs` + `ReadDirStream` | in-memory filesystem with the same async API, including `File`/`OpenOptions` implementing tokio's `AsyncRead`/`AsyncWrite`/`AsyncSeek`, `read_dir`, `metadata`. Not persisted yet. |
+| `platform::time` | `tokio::time` | `wasmtimer` timers; `reset_immediately` helper |
+| `platform::spawn`, `spawn_blocking`, `spawn_abortable`, `JoinError`, `TaskHandle` | tokio tasks | `spawn_local`; blocking work runs inline |
+| `platform::http::Chunked` | wraps `reqwest::Response::chunk()` | reqwest fetch backend `bytes_stream()` |
+| `platform::http::Identity` | `reqwest::Identity` | uninhabited (no client certs in browsers) |
+
+Other changes:
+
+- `std::time::Instant` → `web_time::Instant` (identical type on desktop;
+  `performance.now()` in the browser, where `std`'s panics).
+- `tokio::fs`/`tokio::time` call sites import from `platform` instead.
+- Browser-only behavior: HTTP proxies and client certificates return
+  errors; `password_command` returns an error (no shell); window position
+  validation always passes; uploads send the body whole (fetch can't stream
+  request bodies); GIF animations decode inline from the in-memory files.
+- Cargo: tokio, tokio-stream, reqwest, iced and display-info are split into
+  native and wasm target tables; `getrandom` gets `wasm_js` for `rand`;
+  browser iced uses `wgpu` + `webgl` with `tiny-skia` fallback and
+  `web-colors`. `web-time` is a normal dependency (it *is* `std::time` on
+  desktop).
+
+Known runtime gaps to handle when the app boots:
+
+- `std::fs` still appears in ~11 files (config, dashboard, logs, legacy
+  history). It compiles in the browser but fails at runtime; route these
+  through `platform::fs` (sync variants) as they come up.
+- `SystemTime::now()` panics in the browser; chrono's clock is fine
+  (wasmbind). Audit when the app runs.
+- `keyring` has no browser backend; the web build has no passwords to
+  store, so it should never be reached.
+- History storage uses rusqlite (`sqlite-wasm-rs` in the browser) on the
+  virtual paths. Needs a real persistence decision (OPFS VFS vs. server
+  CHATHISTORY only).
 
 ## Blocker inventory (`data` + app)
 
@@ -57,9 +98,7 @@ Counts are files that use each API (data/src + src).
 
 ## Plan
 
-1. **`data` compiles on wasm.** Split `tokio` features by target, add a
-   `platform` module (fs/time/spawn shims), gate desktop-only modules behind
-   `cfg(not(target_arch = "wasm32"))`. Keep every change `cfg`-scoped.
+1. ~~**`data` compiles on wasm.**~~ Done (see above).
 2. **App boots in the browser.** `halloy` crate builds for wasm with iced's
    web backend (`iced` `webgl`/`wgpu` features), using a hard-coded server
    config pointing at `wss://<same host>/webirc`. Build with `wasm-bindgen`
@@ -88,16 +127,20 @@ the same origin. slashcheer-irc's `worker/test/smoke-gateway.ts` serves this pag
 relays to a local Ergo through the real login gate:
 
 ```bash
-# 1. build the smoke bundle (this repo)
-cd web/smoke
-cargo build --release --target wasm32-unknown-unknown
-wasm-bindgen --target web --out-dir pkg target/wasm32-unknown-unknown/release/halloy_web_smoke.wasm
+# 1. build the smoke bundle (this repo; web/smoke is a workspace member,
+#    compiled empty on desktop)
+cargo build --release --target wasm32-unknown-unknown -p halloy-web-smoke
+wasm-bindgen --target web --out-dir web/smoke/pkg target/wasm32-unknown-unknown/release/halloy_web_smoke.wasm
 
 # 2. run Ergo with jwt-auth and an account "alice", then the gateway (slashcheer-irc)
 #    see worker/test/gate.integration.ts there for the Ergo setup
 cd path/to/slashcheer-irc/worker && ERGO_JWT_KEY=... npm run smoke-gateway -- path/to/halloy/web/smoke
 
-# 3. open http://127.0.0.1:18097/ (or drive it with Playwright) and read window.result
+# 3. open http://127.0.0.1:18097/ (or drive it with Playwright):
+#    window.platform = runtime checks of data::platform (fs, timers, tasks)
+#    window.result   = IRC lines received through the gate
+#    add ?platform-only to skip the IRC part (no gateway/Ergo needed for
+#    window.platform; any static server for web/smoke works)
 ```
 
 `wasm-bindgen` CLI must match the crate version (0.2.108):

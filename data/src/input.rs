@@ -1,6 +1,6 @@
 use std::io;
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::Duration;
 
 use futures::FutureExt;
 use futures::future::BoxFuture;
@@ -11,7 +11,7 @@ use nom::character::complete::char;
 use nom::combinator::{cut, map, rest, verify};
 use nom::multi::{many_m_n, many0_count, many1_count};
 use nom::{Finish, IResult, Parser};
-use tokio::time::Duration;
+use web_time::Instant;
 
 use crate::capabilities::{Capabilities, MultilineBatchKind};
 use crate::config::buffer::text_input::AutoFormat;
@@ -553,7 +553,7 @@ async fn save_drafts(
     let path = draft_path();
 
     if drafts.is_empty() {
-        return match tokio::fs::remove_file(path).await {
+        return match crate::platform::fs::remove_file(path).await {
             Ok(()) => Ok(0),
             Err(error) => {
                 if matches!(error.kind(), io::ErrorKind::NotFound) {
@@ -570,7 +570,7 @@ async fn save_drafts(
 
     let bytes = serde_json::to_vec(&pairs)?;
 
-    tokio::fs::write(path, &bytes).await?;
+    crate::platform::fs::write(path, &bytes).await?;
 
     Ok(pairs.len())
 }

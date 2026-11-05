@@ -1,14 +1,20 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Seek};
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::BufReader;
+use std::io::{self, BufRead, Seek};
 use std::path::PathBuf;
 use std::time::Duration;
 
 use futures::{Stream, StreamExt, stream};
 use image::codecs::gif::GifDecoder;
 use image::{AnimationDecoder, ImageDecoder, Limits, RgbaImage};
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::sync::{Semaphore, mpsc};
+#[cfg(not(target_arch = "wasm32"))]
 use tokio_stream::wrappers::ReceiverStream;
 
+#[cfg(not(target_arch = "wasm32"))]
 static DECODER: Semaphore = Semaphore::const_new(1);
 const MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
 const MAX_FRAME_BYTES: u64 = 8 * 1024 * 1024;
@@ -39,9 +45,40 @@ pub enum Error {
     #[error("GIF has no frames")]
     Empty,
     #[error("GIF decoder failed: {0}")]
-    Worker(#[from] tokio::task::JoinError),
+    Worker(#[from] crate::platform::JoinError),
 }
 
+/// Browser build: no threads to decode on, and files live in the in-memory
+/// filesystem, so decode inline from memory and replay the frames.
+#[cfg(target_arch = "wasm32")]
+pub fn frames(path: PathBuf) -> impl Stream<Item = Result<Frame, Error>> {
+    stream::once(async move {
+        let result = async {
+            let bytes = crate::platform::fs::read(&path).await?;
+            if bytes.len() as u64 > MAX_FILE_BYTES {
+                return Err(Error::TooLarge);
+            }
+            let mut decoded = Vec::new();
+            decode(
+                &mut std::io::Cursor::new(bytes),
+                || false,
+                |frame| {
+                    decoded.push(Ok(frame));
+                    true
+                },
+            )?;
+            Ok(decoded)
+        }
+        .await;
+        match result {
+            Ok(frames) => stream::iter(frames).left_stream(),
+            Err(error) => stream::iter(vec![Err(error)]).right_stream(),
+        }
+    })
+    .flatten()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn frames(path: PathBuf) -> impl Stream<Item = Result<Frame, Error>> {
     stream::once(async move {
         let (sender, receiver) = mpsc::channel(1);

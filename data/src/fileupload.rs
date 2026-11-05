@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -6,11 +7,12 @@ use any_ascii::any_ascii;
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use reqwest::{Client, header};
 use tokio::io::AsyncReadExt as _;
+#[cfg(not(target_arch = "wasm32"))]
 use tokio_util::io::ReaderStream;
 use url::Url;
 
+use crate::config::proxy;
 use crate::config::server::Sasl;
-use crate::config::{self, proxy};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -120,7 +122,7 @@ pub async fn upload(
         |n| n.to_string_lossy().into_owned(),
     );
 
-    let mut file = tokio::fs::File::open(path).await?;
+    let mut file = crate::platform::fs::File::open(path).await?;
     let file_size = file.metadata().await?.len();
 
     // read 36 bytes to infer file type
@@ -131,8 +133,17 @@ pub async fn upload(
     let content_type = infer_mime_type(path, &magic_buffer);
 
     // merge magic_buffer into remaining file stream
-    let stream = ReaderStream::new(Cursor::new(magic_buffer).chain(file));
-    let body = reqwest::Body::wrap_stream(stream);
+    #[cfg(not(target_arch = "wasm32"))]
+    let body = reqwest::Body::wrap_stream(ReaderStream::new(
+        Cursor::new(magic_buffer).chain(file),
+    ));
+    // the browser's fetch can't stream request bodies; send it whole
+    #[cfg(target_arch = "wasm32")]
+    let body = {
+        let mut bytes = magic_buffer;
+        file.read_to_end(&mut bytes).await?;
+        reqwest::Body::from(bytes)
+    };
 
     let (external_client, auth_header) = match &auth {
         Some(Auth::External { cert, key }) => (
@@ -218,19 +229,29 @@ async fn sasl_external_client(
     key: Option<&Path>,
     proxy_config: Option<&proxy::Proxy>,
 ) -> Result<reqwest::Client, Error> {
-    let cert_bytes = tokio::fs::read(cert).await?;
+    let cert_bytes = crate::platform::fs::read(cert).await?;
     let pem = if let Some(key_path) = key {
-        let key_bytes = tokio::fs::read(key_path).await?;
+        let key_bytes = crate::platform::fs::read(key_path).await?;
         [cert_bytes, key_bytes].concat()
     } else {
         cert_bytes
     };
 
-    let identity = reqwest::tls::Identity::from_pem(&pem)
-        .map_err(|e: reqwest::Error| Error::ClientCert(e.to_string()))?;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (pem, proxy_config);
+        Err(Error::ClientCert(
+            "client certificates aren't supported in the browser".into(),
+        ))
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let identity = reqwest::tls::Identity::from_pem(&pem)
+            .map_err(|e: reqwest::Error| Error::ClientCert(e.to_string()))?;
 
-    config::proxy::build_client(proxy_config, Some(identity))
-        .map_err(Error::ClientBuildError)
+        proxy::build_client(proxy_config, Some(identity))
+            .map_err(Error::ClientBuildError)
+    }
 }
 
 fn basic_auth_header(username: &str, password: &str) -> String {

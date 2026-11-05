@@ -92,7 +92,7 @@ pub async fn get_password(key: &str) -> Result<Option<String>, Error> {
     let key = key.to_string();
     let task_key = key.clone();
 
-    tokio::task::spawn_blocking(move || get_password_blocking(&task_key))
+    crate::platform::spawn_blocking(move || get_password_blocking(&task_key))
         .await
         .map_err(|error| keyring_error(key, error))?
 }
@@ -102,7 +102,7 @@ pub async fn set_password(key: &str, password: &str) -> Result<(), Error> {
     let password = password.to_string();
     let task_key = key.clone();
 
-    tokio::task::spawn_blocking(move || {
+    crate::platform::spawn_blocking(move || {
         set_password_blocking(&task_key, &password)
     })
     .await

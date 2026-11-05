@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Instant;
 
 use anyhow::{Context as ErrorContext, Result, anyhow};
 use hashbrown::HashMap;
+use web_time::Instant;
 
 use super::{CLIENT_CHATHISTORY_LIMIT, Client, Event, Topic};
 use crate::buffer::{self, BuffersContext};

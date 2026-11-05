@@ -1,9 +1,9 @@
 use std::fmt;
-use std::time::Instant;
 
 use chrono::{DateTime, Utc};
 use equivalent::Equivalent;
 use serde::{Deserialize, Serialize};
+use web_time::Instant;
 
 pub use self::metadata::{Metadata, ReadMarker};
 pub use self::model::Model;

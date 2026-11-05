@@ -5,11 +5,11 @@ use hashbrown::HashMap;
 use iced::Task;
 use reqwest::header;
 use sha2::{Digest, Sha256};
-use tokio::fs;
 use url::Url;
 
 use crate::cache::{self, Asset, CacheState, CachedAsset, FileCache};
 use crate::image::{self, Image};
+use crate::platform::fs;
 use crate::{Server, environment};
 
 #[derive(Debug)]
@@ -231,7 +231,9 @@ async fn fetch(
          image/*",
     );
 
-    let mut resp = req.send().await?.error_for_status()?;
+    let mut resp = crate::platform::http::Chunked::from(
+        req.send().await?.error_for_status()?,
+    );
 
     let Some(first_chunk) = resp.chunk().await? else {
         return Err(LoadError::EmptyBody);

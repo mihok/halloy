@@ -123,7 +123,7 @@ impl Dashboard {
 
         let bytes = compression::compress(&self)?;
 
-        tokio::fs::write(path, &bytes).await?;
+        crate::platform::fs::write(path, &bytes).await?;
 
         Ok(())
     }

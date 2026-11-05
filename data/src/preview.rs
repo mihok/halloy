@@ -9,10 +9,8 @@ use log;
 use reqwest::header::{self, HeaderValue};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use tokio::fs::{self, File};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::Semaphore;
-use tokio::time;
 use url::Url;
 
 pub use self::card::Card;
@@ -20,6 +18,8 @@ use crate::cache::{self, Asset, CacheState, CachedAsset, FileCache};
 use crate::config::preview::{Enabled, Visibility};
 use crate::image::Image;
 use crate::message::Source;
+use crate::platform::fs::{self, File};
+use crate::platform::time;
 use crate::server::Server;
 use crate::target::{self, TargetRef};
 use crate::{config, image, isupport};
@@ -476,7 +476,9 @@ async fn fetch(
         req = req.header(header::USER_AGENT, user_agent);
     }
 
-    let mut resp = req.send().await?.error_for_status()?;
+    let mut resp = crate::platform::http::Chunked::from(
+        req.send().await?.error_for_status()?,
+    );
 
     let Some(first_chunk) = resp.chunk().await? else {
         return Err(LoadError::EmptyBody);

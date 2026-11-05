@@ -2,11 +2,12 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak, mpsc};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{fs, thread};
 
 use hashbrown::HashSet;
 use rusqlite::Connection;
+use web_time::Instant;
 
 use super::{Error, Event, Message, batch, cache};
 use crate::history::{Kind, Metadata, ReadMarker, database, legacy};

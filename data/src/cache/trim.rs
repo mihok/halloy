@@ -69,7 +69,7 @@ impl TrimConfig {
         let size_estimate = self.size_estimate.clone();
         let trim_in_progress = self.trim_in_progress.clone();
 
-        tokio::spawn(async move {
+        crate::platform::spawn(async move {
             trim_once(blob_root, max_size, protected_path, size_estimate).await;
             trim_in_progress.store(false, Ordering::Release);
         });
@@ -95,7 +95,7 @@ async fn trim_once(
     size_estimate: Arc<AtomicU64>,
 ) {
     let mut files =
-        tokio::task::spawn_blocking(move || collect_files(&blob_root))
+        crate::platform::spawn_blocking(move || collect_files(&blob_root))
             .await
             .unwrap_or_default();
 
@@ -109,7 +109,7 @@ async fn trim_once(
     let removed_bytes = to_remove.iter().map(|f| f.size).sum::<u64>();
 
     for file in &to_remove {
-        let _ = tokio::fs::remove_file(&file.path).await;
+        let _ = crate::platform::fs::remove_file(&file.path).await;
     }
 
     let remaining: u64 = files

@@ -2,7 +2,7 @@ use std::cmp::Ordering;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{fs, io};
 
 use chrono::{self, DateTime, Local, NaiveDate, Utc};
@@ -11,6 +11,7 @@ use iced::Task;
 use itertools::Itertools;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use web_time::Instant;
 
 use super::filter::{Filter, FilterChain};
 use super::reroute::RerouteRules;
@@ -363,7 +364,7 @@ impl Manager {
     pub fn tick(&mut self, now: Instant, config: &Config) {
         if let Some(save_future) = self.input_storage.tick(now, config) {
             let events = self.event_sender.clone();
-            tokio::task::spawn(async move {
+            crate::platform::spawn(async move {
                 let _ = events.send(vec![Event::History(
                     Message::DraftsSaved(save_future.await),
                 )]);
@@ -814,7 +815,7 @@ impl Manager {
         self.exiting = true;
         let save = self.input_storage.save(config);
         let worker = self.worker.clone();
-        tokio::task::spawn(async move {
+        crate::platform::spawn(async move {
             let result = if let Some(save) = save {
                 Some(save.await)
             } else {

@@ -52,6 +52,7 @@ pub mod metadata;
 pub mod mode;
 pub mod notification;
 pub mod pane;
+pub mod platform;
 pub mod preview;
 pub mod rate_limit;
 pub mod reaction;

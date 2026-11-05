@@ -116,9 +116,26 @@ impl fmt::Display for Proxy {
     }
 }
 
+/// Browser build: the browser does its own proxying and can't present client
+/// certificates, so neither is configurable.
+#[cfg(target_arch = "wasm32")]
 pub fn build_client(
     proxy: Option<&Proxy>,
-    identity: Option<reqwest::Identity>,
+    identity: Option<crate::platform::http::Identity>,
+) -> Result<reqwest::Client, BuildError> {
+    if proxy.is_some() {
+        return Err(BuildError::Unsupported("HTTP proxies"));
+    }
+    if let Some(identity) = identity {
+        match identity {}
+    }
+    Ok(reqwest::Client::builder().build()?)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn build_client(
+    proxy: Option<&Proxy>,
+    identity: Option<crate::platform::http::Identity>,
 ) -> Result<reqwest::Client, BuildError> {
     let mut builder = match proxy {
         None => reqwest::Client::builder(),
@@ -177,6 +194,8 @@ pub enum BuildError {
     Tor,
     #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
+    #[error("not supported in the browser: {0}")]
+    Unsupported(&'static str),
 }
 
 async fn set_password(

@@ -4,11 +4,12 @@ use std::sync::Arc;
 
 use iced_core::{Point, Size};
 use serde::{Deserialize, Serialize};
-use tokio::fs;
 
 use crate::environment;
+use crate::platform::fs;
 
 pub const MIN_SIZE: Size = Size::new(426.0, 240.0);
+#[cfg(not(target_arch = "wasm32"))]
 const MIN_VISIBLE_SIZE: Size = Size::new(64.0, 64.0);
 
 pub mod position;
@@ -85,7 +86,14 @@ fn path() -> Result<PathBuf, Error> {
     Ok(parent.join("window.json"))
 }
 
+/// Browser build: the page is the window; any saved position is fine.
+#[cfg(target_arch = "wasm32")]
+fn is_position_valid(_position: Point, _size: Size) -> bool {
+    true
+}
+
 /// Check if a window position is valid (within visible screen bounds)
+#[cfg(not(target_arch = "wasm32"))]
 fn is_position_valid(position: Point, size: Size) -> bool {
     display_info::DisplayInfo::all().is_ok_and(|displays| {
         displays
@@ -95,6 +103,7 @@ fn is_position_valid(position: Point, size: Size) -> bool {
 }
 
 /// Returns true if enough of the saved window would be visible to recover it.
+#[cfg(not(target_arch = "wasm32"))]
 fn window_has_visible_area(
     position: Point,
     size: Size,

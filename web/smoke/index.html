@@ -2,12 +2,15 @@
 <meta charset="utf-8">
 <title>halloy web smoke</title>
 <script type="module">
-  import init, { smoke } from "./pkg/halloy_web_smoke.js";
+  import init, { smoke, platform_check } from "./pkg/halloy_web_smoke.js";
   await init();
-  try {
-    window.result = await smoke(location.hostname, Number(location.port), location.protocol === "https:", "/webirc");
-  } catch (e) {
-    window.result = ["FAILED " + e];
+  window.platform = Array.from(await platform_check());
+  if (!new URLSearchParams(location.search).has("platform-only")) {
+    try {
+      window.result = await smoke(location.hostname, Number(location.port), location.protocol === "https:", "/webirc");
+    } catch (e) {
+      window.result = ["FAILED " + e];
+    }
   }
   window.done = true;
 </script>

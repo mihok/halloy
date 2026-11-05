@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
+use std::time::Duration;
 
-use tokio::time::{Duration, Instant};
+use web_time::Instant;
 
 #[derive(Debug, Clone)]
 pub struct BackoffInterval {

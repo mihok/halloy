@@ -2,7 +2,7 @@ use std::io;
 use std::net::IpAddr;
 use std::num::NonZeroU16;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use bytes::{Bytes, BytesMut};
 use futures::channel::mpsc::{self, Receiver, Sender};
@@ -11,13 +11,13 @@ use irc::proto::command;
 use irc::{BytesCodec, Connection, connection};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
-use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::task::JoinHandle;
-use tokio::time;
 use tokio_stream::StreamExt;
+use web_time::Instant;
 
 use super::Id;
+use crate::platform::fs::File;
+use crate::platform::time;
 use crate::{User, config, dcc, server};
 
 /// 16 KiB
@@ -25,7 +25,7 @@ pub const BUFFER_SIZE: usize = 16 * 1024;
 
 pub struct Handle {
     sender: Sender<Action>,
-    task: JoinHandle<()>,
+    task: crate::platform::TaskHandle,
 }
 
 impl Handle {
@@ -110,7 +110,7 @@ impl Task {
         let (action_sender, action_receiver) = mpsc::channel(1);
         let (update_sender, update_receiver) = mpsc::channel(100);
 
-        let task = tokio::spawn(async move {
+        let task = crate::platform::spawn_abortable(async move {
             let mut update = update_sender.clone();
 
             match self {

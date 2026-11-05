@@ -26,7 +26,9 @@ use send_wrapper::SendWrapper;
 use tokio_util::codec::{Decoder, Encoder};
 use wasm_bindgen::JsCast;
 use wasm_bindgen::closure::Closure;
-use web_sys::{BinaryType, CloseEvent, Event, MessageEvent, WebSocket as JsWebSocket};
+use web_sys::{
+    BinaryType, CloseEvent, Event, MessageEvent, WebSocket as JsWebSocket,
+};
 
 const SUBPROTOCOLS: [&str; 2] = ["text.ircv3.net", "binary.ircv3.net"];
 
@@ -139,18 +141,102 @@ fn websocket_url(config: &Config<'_>, path: &str) -> String {
         Security::Secured { .. } => "wss",
         Security::Unsecured => "ws",
     };
-    let host = if config.server.contains(':') && !config.server.starts_with('[') {
+    let host = if config.server.contains(':') && !config.server.starts_with('[')
+    {
         format!("[{}]", config.server)
     } else {
         config.server.to_string()
     };
-    let path = if path.starts_with('/') { path.to_string() } else { format!("/{path}") };
-    let default_port = matches!((scheme, config.port), ("wss", 443) | ("ws", 80));
+    let path = if path.starts_with('/') {
+        path.to_string()
+    } else {
+        format!("/{path}")
+    };
+    let default_port =
+        matches!((scheme, config.port), ("wss", 443) | ("ws", 80));
     if default_port {
         format!("{scheme}://{host}{path}")
     } else {
         format!("{scheme}://{host}:{}{path}", config.port)
     }
+}
+
+/// Everything that must stay alive until the socket opens. JS objects are
+/// !Send, so they're only touched synchronously or inside a SendWrapper,
+/// which keeps the connect future Send as the data crate requires.
+struct Pending {
+    inner: SendWrapper<Inner>,
+    on_open: SendWrapper<Closure<dyn FnMut()>>,
+    incoming: mpsc::UnboundedReceiver<Incoming>,
+    opened: oneshot::Receiver<Result<(), Error>>,
+}
+
+fn open_socket(url: &str) -> Result<Pending, Error> {
+    let protocols = js_sys::Array::new();
+    for p in SUBPROTOCOLS {
+        protocols.push(&wasm_bindgen::JsValue::from_str(p));
+    }
+    let socket =
+        JsWebSocket::new_with_str_sequence(url, &protocols).map_err(js_err)?;
+    socket.set_binary_type(BinaryType::Arraybuffer);
+
+    let (tx, rx) = mpsc::unbounded::<Incoming>();
+    let (open_tx, open_rx) = oneshot::channel::<Result<(), Error>>();
+    let open_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(open_tx)));
+
+    let on_message = {
+        let tx = tx.clone();
+        Closure::<dyn FnMut(MessageEvent)>::new(move |e: MessageEvent| {
+            let data = e.data();
+            let bytes = if let Some(s) = data.as_string() {
+                s.into_bytes()
+            } else if let Ok(buf) = data.dyn_into::<js_sys::ArrayBuffer>() {
+                js_sys::Uint8Array::new(&buf).to_vec()
+            } else {
+                return;
+            };
+            let _ = tx.unbounded_send(Incoming::Data(bytes));
+        })
+    };
+    let on_close = {
+        let open_tx = open_tx.clone();
+        Closure::<dyn FnMut(CloseEvent)>::new(move |e: CloseEvent| {
+            let reason = e.reason();
+            let reason = (!reason.is_empty()).then_some(reason);
+            if let Some(o) = open_tx.borrow_mut().take() {
+                let _ = o.send(Err(Error::WebSocket(
+                    reason.clone().unwrap_or_else(|| {
+                        format!("closed with code {}", e.code())
+                    }),
+                )));
+            }
+            let _ = tx.unbounded_send(Incoming::Closed(reason));
+        })
+    };
+    // The close event that always follows an error carries the details.
+    let on_error = Closure::<dyn FnMut(Event)>::new(move |_e: Event| {});
+    let on_open = Closure::<dyn FnMut()>::new(move || {
+        if let Some(o) = open_tx.borrow_mut().take() {
+            let _ = o.send(Ok(()));
+        }
+    });
+
+    socket.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
+    socket.set_onclose(Some(on_close.as_ref().unchecked_ref()));
+    socket.set_onerror(Some(on_error.as_ref().unchecked_ref()));
+    socket.set_onopen(Some(on_open.as_ref().unchecked_ref()));
+
+    Ok(Pending {
+        inner: SendWrapper::new(Inner {
+            socket,
+            _on_message: on_message,
+            _on_close: on_close,
+            _on_error: on_error,
+        }),
+        on_open: SendWrapper::new(on_open),
+        incoming: rx,
+        opened: open_rx,
+    })
 }
 
 impl<Codec> Connection<Codec> {
@@ -159,93 +245,43 @@ impl<Codec> Connection<Codec> {
             return Err(Error::Unsupported("proxies"));
         }
         if let Security::Secured {
-            client_cert_path: Some(_), ..
+            client_cert_path: Some(_),
+            ..
         }
         | Security::Secured {
-            root_cert_path: Some(_), ..
+            root_cert_path: Some(_),
+            ..
         } = config.security
         {
             return Err(Error::Unsupported("custom TLS certificates"));
         }
         // Every web connection is a websocket, whatever the config says.
-        let path = config.websocket.as_ref().map(|w| w.path).unwrap_or("/webirc");
+        let path = config.websocket.as_ref().map_or("/webirc", |w| w.path);
         let url = websocket_url(&config, path);
 
-        let protocols = js_sys::Array::new();
-        for p in SUBPROTOCOLS {
-            protocols.push(&wasm_bindgen::JsValue::from_str(p));
-        }
-        let socket = JsWebSocket::new_with_str_sequence(&url, &protocols).map_err(js_err)?;
-        socket.set_binary_type(BinaryType::Arraybuffer);
+        let Pending {
+            inner,
+            on_open,
+            incoming,
+            opened,
+        } = open_socket(&url)?;
 
-        let (tx, rx) = mpsc::unbounded::<Incoming>();
-        let (open_tx, open_rx) = oneshot::channel::<Result<(), Error>>();
-        let open_tx = std::rc::Rc::new(std::cell::RefCell::new(Some(open_tx)));
-
-        let on_message = {
-            let tx = tx.clone();
-            Closure::<dyn FnMut(MessageEvent)>::new(move |e: MessageEvent| {
-                let data = e.data();
-                let bytes = if let Some(s) = data.as_string() {
-                    s.into_bytes()
-                } else if let Ok(buf) = data.dyn_into::<js_sys::ArrayBuffer>() {
-                    js_sys::Uint8Array::new(&buf).to_vec()
-                } else {
-                    return;
-                };
-                let _ = tx.unbounded_send(Incoming::Data(bytes));
-            })
-        };
-        let on_close = {
-            let tx = tx.clone();
-            let open_tx = open_tx.clone();
-            Closure::<dyn FnMut(CloseEvent)>::new(move |e: CloseEvent| {
-                let reason = e.reason();
-                let reason = (!reason.is_empty()).then_some(reason);
-                if let Some(o) = open_tx.borrow_mut().take() {
-                    let _ = o.send(Err(Error::WebSocket(
-                        reason.clone().unwrap_or_else(|| format!("closed with code {}", e.code())),
-                    )));
-                }
-                let _ = tx.unbounded_send(Incoming::Closed(reason));
-            })
-        };
-        let on_error = Closure::<dyn FnMut(Event)>::new(move |_e: Event| {
-            // The close event that always follows carries the details.
+        let opened = opened.await.unwrap_or_else(|_| {
+            Err(Error::WebSocket("connection dropped".into()))
         });
-        let on_open = {
-            let open_tx = open_tx.clone();
-            Closure::once(move || {
-                if let Some(o) = open_tx.borrow_mut().take() {
-                    let _ = o.send(Ok(()));
-                }
-            })
-        };
-
-        socket.set_onmessage(Some(on_message.as_ref().unchecked_ref()));
-        socket.set_onclose(Some(on_close.as_ref().unchecked_ref()));
-        socket.set_onerror(Some(on_error.as_ref().unchecked_ref()));
-        socket.set_onopen(Some(on_open.as_ref().unchecked_ref()));
-
-        let inner = Inner {
-            socket,
-            _on_message: on_message,
-            _on_close: on_close,
-            _on_error: on_error,
-        };
-
-        let opened = open_rx
-            .await
-            .unwrap_or_else(|_| Err(Error::WebSocket("connection dropped".into())));
         inner.socket.set_onopen(None);
         drop(on_open);
         opened?;
 
-        let mode = if inner.socket.protocol() == "text.ircv3.net" { Mode::Text } else { Mode::Binary };
+        let mode = if inner.socket.protocol() == "text.ircv3.net" {
+            Mode::Text
+        } else {
+            Mode::Binary
+        };
 
         Ok(Self {
-            inner: SendWrapper::new(inner),
-            incoming: rx,
+            inner,
+            incoming,
             codec,
             read: BytesMut::new(),
             mode,
@@ -275,7 +311,10 @@ impl<Codec> Connection<Codec> {
 
     /// Browsers answer server pings themselves and can't send ping frames;
     /// IRC-level PING/PONG still runs.
-    pub async fn send_ws_ping(&mut self, _timeout: Duration) -> Result<(), io::Error> {
+    pub async fn send_ws_ping(
+        &mut self,
+        _timeout: Duration,
+    ) -> Result<(), io::Error> {
         Ok(())
     }
 
@@ -290,12 +329,16 @@ impl<Codec> Connection<Codec> {
         while let Some(bytes) = self.pending.pop_front() {
             let res = match self.mode {
                 Mode::Text => {
-                    let text = String::from_utf8(bytes).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+                    let text = String::from_utf8(bytes).map_err(|e| {
+                        io::Error::new(io::ErrorKind::InvalidData, e)
+                    })?;
                     self.inner.socket.send_with_str(&text)
                 }
                 Mode::Binary => self.inner.socket.send_with_u8_array(&bytes),
             };
-            res.map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, format!("{e:?}")))?;
+            res.map_err(|e| {
+                io::Error::new(io::ErrorKind::BrokenPipe, format!("{e:?}"))
+            })?;
         }
         Ok(())
     }
@@ -308,7 +351,10 @@ where
 {
     type Item = Result<Codec::Item, Codec::Error>;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+    fn poll_next(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Self::Item>> {
         let this = self.get_mut();
         loop {
             if let Some(item) = this.codec.decode(&mut this.read)? {
@@ -318,11 +364,17 @@ where
                 return Poll::Ready(None);
             }
             match this.incoming.poll_next_unpin(cx) {
-                Poll::Ready(Some(Incoming::Data(bytes))) => this.push_crlf_line(&bytes),
+                Poll::Ready(Some(Incoming::Data(bytes))) => {
+                    this.push_crlf_line(&bytes);
+                }
                 Poll::Ready(Some(Incoming::Closed(reason))) => {
                     this.closed = true;
                     if let Some(reason) = reason {
-                        return Poll::Ready(Some(Err(io::Error::new(io::ErrorKind::ConnectionAborted, reason).into())));
+                        return Poll::Ready(Some(Err(io::Error::new(
+                            io::ErrorKind::ConnectionAborted,
+                            reason,
+                        )
+                        .into())));
                     }
                 }
                 Poll::Ready(None) => return Poll::Ready(None),
@@ -339,9 +391,16 @@ where
 {
     type Error = Codec::Error;
 
-    fn poll_ready(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_ready(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         if self.closed {
-            return Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "websocket closed").into()));
+            return Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "websocket closed",
+            )
+            .into()));
         }
         Poll::Ready(Ok(()))
     }
@@ -358,12 +417,18 @@ where
         Ok(())
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_flush(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         // The browser buffers sends internally; hand everything over now.
         Poll::Ready(self.get_mut().flush_pending().map_err(Into::into))
     }
 
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+    fn poll_close(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+    ) -> Poll<Result<(), Self::Error>> {
         let this = self.get_mut();
         let flushed = this.flush_pending();
         this.closed = true;
