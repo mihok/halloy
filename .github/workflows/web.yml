@@ -30,3 +30,35 @@ jobs:
         run: cargo test -p irc -p irc_proto
       - name: smoke test bundle builds
         run: cargo clippy --target wasm32-unknown-unknown -p halloy-web-smoke -- -D warnings
+
+  # Publish the browser bundle for slashcheer-irc, which pins a release
+  # (tag + sha256) and serves it at /web/.
+  bundle:
+    if: github.event_name == 'push'
+    needs: wasm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - name: install wasm-bindgen CLI (matching Cargo.lock)
+        run: |
+          version=$(awk '/^name = "wasm-bindgen"$/{getline; gsub(/version = |"/, ""); print; exit}' Cargo.lock)
+          cargo install wasm-bindgen-cli --version "$version" --locked
+      - name: build bundle
+        run: web/build.sh
+      - name: publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="web-${GITHUB_SHA::12}"
+          gh release create "$tag" \
+            web/halloy-web.tar.gz web/halloy-web.tar.gz.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "Halloy web bundle $tag" \
+            --notes "Browser build of web-port at $GITHUB_SHA. sha256: $(cut -d' ' -f1 web/halloy-web.tar.gz.sha256)" \
+            --prerelease

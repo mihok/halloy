@@ -23,7 +23,7 @@ come with its source; this repository is that source.
 
 The slashcheer-irc Worker's `IrcGate` (`worker/src/gate.ts` there) logs every websocket in as the
 account bound to the visitor's Cloudflare Access identity. The browser sends
-the Access cookie automatically on the same-origin `wss://<host>/webirc`
+the Access cookie automatically on the same-origin `wss://<host>/web/irc`
 upgrade, so the web build needs **no credentials, SASL, or login UI**: it
 connects with any nickname and the server makes it the user's account. The
 only client-side work is a transport.
@@ -38,7 +38,7 @@ only client-side work is a transport.
 | `data` crate on wasm | **Compiles, clippy-clean.** Native workspace (app included) builds, clippy-clean, 174 data tests pass. The browser shims are checked at runtime in headless Chromium by `web/smoke` (`platform_check`: in-memory fs, timers, tasks: 11/11 pass). See "data crate: how it's ported" below. |
 | `halloy` app crate on wasm | **Boots and chats.** Built with `cargo build --release --target wasm32-unknown-unknown -p halloy` + `wasm-bindgen`; `web/app/index.html` hosts it. Verified end to end in headless Chromium through the slashcheer login gate to Ergo 2.19.1: connects as the gate's account with no credentials, auto-joins a channel, shows another user's messages and nick list, and a message typed in Halloy reaches the other user. No page errors. Desktop build, clippy and tests unchanged. |
 | Persistence | **Done.** Config, drafts, dashboard layout, window state and chat history survive reloads (IndexedDB). Verified in Chromium with a persistent profile: history and layout restored with the server unreachable; an unsent draft restored after reload. |
-| Build + deploy to `/client/` | Not started. slashcheer-irc serves `web/dist/client/` when `web_client_enabled = true`; plan: this repo's CI publishes the wasm bundle as a release asset and slashcheer-irc's deploy pulls a pinned version into that directory. |
+| Build + deploy to `/web/` | **Done.** `web/build.sh` builds the size-optimized bundle (`--profile web`: opt-level z, fat LTO, stripped; 19.2 MB wasm, 7.8 MB gzipped, under Cloudflare's 25 MiB per-asset limit) into `web/dist/` plus `halloy-web.tar.gz`. The `web` workflow publishes it as release `web-<commit>` on every push to `web-port`; slashcheer-irc pins a release (tag + sha256) in `web/halloy.lock` and serves it at `https://<host>/web/`, filling in the `halloy-*` meta tags. The websocket is `/web/irc`. |
 
 ## data crate: how it's ported
 
@@ -85,7 +85,7 @@ Fixed while booting the app (all browser-only):
 
 - `src/web.rs`: the browser entry point. Installs a console panic hook and
   logging, seeds `config.toml` in the virtual filesystem pointing at the
-  page's own host (`wss://<host>/webirc`), then calls the same `run()` the
+  page's own host (`wss://<host>/web/irc`), then calls the same `run()` the
   desktop `main()` uses. The page can set `<meta name="halloy-network">`,
   `halloy-websocket-path` and `halloy-channels` (auto-join).
 - Browser twins selected with `#[cfg_attr(target_arch = "wasm32", path = ...)]`
@@ -134,8 +134,8 @@ Fixed while booting the app (all browser-only):
 - **Storage limits.** IndexedDB quota is browser-managed; Halloy doesn't yet
   request persistent storage (`navigator.storage.persist()`) or report
   quota errors in the UI.
-- **Bundle size.** ~36 MB wasm unoptimized (fonts, sounds, emoji). Next:
-  `wasm-opt -Oz`, drop unused fonts/sounds for web, brotli on the CDN.
+- **Bundle size.** 19.2 MB wasm with the `web` profile (7.8 MB gzipped). Next:
+  `wasm-opt -Oz` in CI, drop unused fonts/sounds for web.
 - **Downloads.** `save_file` (save image, save theme, DCC) returns `None`;
   map it to browser downloads.
 - **Clipboard, IME, touch.** Not yet exercised beyond basic typing.
@@ -176,7 +176,7 @@ text input/IME, clipboard), steps 3–4 are a few weeks of polish.
 Desktop Halloy already speaks IRC-over-WebSocket (`use_websocket`). A small
 fork change, a config option for extra websocket request headers (e.g.
 `cf-access-token` from `cloudflared access token`), would let desktop users
-connect straight to `wss://<host>/webirc` without `scripts/irc-bridge.sh`.
+connect straight to `wss://<host>/web/irc` without `the `slashcheer` connector`.
 
 ## Building and running the web app
 
@@ -184,9 +184,9 @@ connect straight to `wss://<host>/webirc` without `scripts/irc-bridge.sh`.
 cargo build --release --target wasm32-unknown-unknown -p halloy
 wasm-bindgen --target web --out-dir web/app/pkg \
     target/wasm32-unknown-unknown/release/halloy.wasm
-# serve web/app/ from the same origin as /webirc. For a local run against
+# serve web/app/ from the same origin as /web/irc. For a local run against
 # Ergo through the login gate, slashcheer-irc's worker/test/smoke-gateway.ts
-# serves a static directory and relays /webirc:
+# serves a static directory and relays /web/irc:
 cd path/to/slashcheer-irc/worker && \
     ERGO_JWT_KEY=... GATE_ACCOUNT=alice npm run smoke-gateway -- path/to/halloy/web/app
 # open http://127.0.0.1:18097/
@@ -197,7 +197,7 @@ carries the `halloy-*` meta tags.
 
 ## Running the smoke test
 
-The smoke page needs something speaking IRC-over-WebSocket at `/webirc` on
+The smoke page needs something speaking IRC-over-WebSocket at `/web/irc` on
 the same origin. slashcheer-irc's `worker/test/smoke-gateway.ts` serves this page and
 relays to a local Ergo through the real login gate:
 

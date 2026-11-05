@@ -7,7 +7,7 @@
   window.platform = Array.from(await platform_check());
   if (!new URLSearchParams(location.search).has("platform-only")) {
     try {
-      window.result = await smoke(location.hostname, Number(location.port), location.protocol === "https:", "/webirc");
+      window.result = await smoke(location.hostname, Number(location.port), location.protocol === "https:", "/web/irc");
     } catch (e) {
       window.result = ["FAILED " + e];
     }

@@ -87,7 +87,7 @@ fn default_config() -> String {
         .unwrap_or(if secure { 443 } else { 80 });
     let network = meta("halloy-network").unwrap_or_else(|| "irc".into());
     let path =
-        meta("halloy-websocket-path").unwrap_or_else(|| "/webirc".into());
+        meta("halloy-websocket-path").unwrap_or_else(|| "/web/irc".into());
 
     let mut toml = String::new();
     let _ = writeln!(

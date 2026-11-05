@@ -256,7 +256,7 @@ impl<Codec> Connection<Codec> {
             return Err(Error::Unsupported("custom TLS certificates"));
         }
         // Every web connection is a websocket, whatever the config says.
-        let path = config.websocket.as_ref().map_or("/webirc", |w| w.path);
+        let path = config.websocket.as_ref().map_or("/web/irc", |w| w.path);
         let url = websocket_url(&config, path);
 
         let Pending {

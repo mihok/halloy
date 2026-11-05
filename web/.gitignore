@@ -2,3 +2,6 @@ smoke/target/
 smoke/pkg/
 smoke/node_modules/
 app/pkg/
+dist/
+halloy-web.tar.gz
+halloy-web.tar.gz.sha256
