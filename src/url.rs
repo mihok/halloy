@@ -1,4 +1,6 @@
-use futures::stream::BoxStream;
+#[cfg(not(target_arch = "wasm32"))]
+use iced::advanced::graphics::futures::BoxStream;
+#[cfg(not(target_arch = "wasm32"))]
 use iced::advanced::subscription::{self, Hasher};
 use iced::{self, Subscription};
 
@@ -24,7 +26,7 @@ pub fn listen() -> Subscription<String> {
         fn stream(
             self: Box<Self>,
             input: subscription::EventStream,
-        ) -> BoxStream<'static, Self::Output> {
+        ) -> BoxStream<Self::Output> {
             input
                 .filter_map(move |event| {
                     if let Event::Interaction { status, .. } = &event
@@ -51,7 +53,13 @@ pub fn listen() -> Subscription<String> {
     subscription::from_recipe(OnUrl)
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Browser: no OS-level URL handler; deep links arrive with the page.
+#[cfg(target_arch = "wasm32")]
+pub fn listen() -> Subscription<String> {
+    Subscription::none()
+}
+
+#[cfg(all(not(target_os = "macos"), not(target_arch = "wasm32")))]
 pub fn listen() -> Subscription<String> {
     struct Listener;
 
@@ -68,7 +76,7 @@ pub fn listen() -> Subscription<String> {
         fn stream(
             self: Box<Self>,
             _input: subscription::EventStream,
-        ) -> BoxStream<'static, Self::Output> {
+        ) -> BoxStream<Self::Output> {
             ipc::listen()
         }
     }

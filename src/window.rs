@@ -1,8 +1,7 @@
 use data::Config;
 pub use data::window::{Error, MIN_SIZE};
-use futures::stream::BoxStream;
 use futures::{Stream, StreamExt};
-use iced::advanced::graphics::futures::subscription;
+use iced::advanced::graphics::futures::{BoxStream, subscription};
 pub use iced::window::{
     Id, Position, Settings, close, gain_focus, maximize, open,
 };
@@ -223,7 +222,7 @@ impl subscription::Recipe for Events {
     fn stream(
         self: Box<Self>,
         events: subscription::EventStream,
-    ) -> BoxStream<'static, Self::Output> {
+    ) -> BoxStream<Self::Output> {
         use futures::stream;
 
         const TIMEOUT: std::time::Duration =
@@ -231,7 +230,7 @@ impl subscription::Recipe for Events {
         const INITIAL_SKIP_THRESHOLD: std::time::Duration =
             std::time::Duration::from_secs(2);
 
-        let start_time = std::time::Instant::now();
+        let start_time = iced::time::Instant::now();
 
         let window_events = events.filter_map(move |event| {
             let elapsed = start_time.elapsed();
@@ -300,181 +299,195 @@ impl subscription::Recipe for Events {
             })
         });
 
-        stream::unfold(
-            State::Idle {
-                stream: window_events,
-            },
-            move |state| async move {
-                match state {
-                    State::Idle { mut stream } => {
-                        stream.next().await.map(|(id, event)| match event {
-                            Event::Moved(position) => (
-                                vec![],
-                                State::Moving {
-                                    stream,
-                                    id,
-                                    position,
-                                },
-                            ),
-                            Event::Resized(size) => {
-                                (vec![], State::Resizing { stream, id, size })
-                            }
-                            Event::Focused => (
-                                vec![(id, Event::Focused)],
-                                State::Idle { stream },
-                            ),
-                            Event::Unfocused => (
-                                vec![(id, Event::Unfocused)],
-                                State::Idle { stream },
-                            ),
-                            Event::Opened { position, size } => (
-                                vec![(id, Event::Opened { position, size })],
-                                State::Idle { stream },
-                            ),
-                            Event::CloseRequested => (
-                                vec![(id, Event::CloseRequested)],
-                                State::Idle { stream },
-                            ),
-                            Event::FileHovered => (
-                                vec![(id, Event::FileHovered)],
-                                State::Idle { stream },
-                            ),
-                            Event::FilesHoveredLeft => (
-                                vec![(id, Event::FilesHoveredLeft)],
-                                State::Idle { stream },
-                            ),
-                            Event::FileDropped(path) => (
-                                vec![(id, Event::FileDropped(path))],
-                                State::Idle { stream },
-                            ),
-                        })
-                    }
-                    State::Moving {
-                        mut stream,
-                        id,
-                        position,
-                    } => {
-                        let next_event =
-                            tokio::time::timeout(TIMEOUT, stream.next()).await;
-
-                        match next_event {
-                            Ok(Some((next_id, Event::Moved(position))))
-                                if next_id == id =>
-                            {
-                                Some((
+        iced::advanced::graphics::futures::boxed_stream(
+            stream::unfold(
+                State::Idle {
+                    stream: window_events,
+                },
+                move |state| async move {
+                    match state {
+                        State::Idle { mut stream } => {
+                            stream.next().await.map(|(id, event)| match event {
+                                Event::Moved(position) => (
                                     vec![],
                                     State::Moving {
                                         stream,
                                         id,
                                         position,
                                     },
-                                ))
-                            }
-                            Ok(Some((next_id, Event::Resized(size))))
-                                if next_id == id =>
-                            {
-                                Some((
-                                    vec![],
-                                    State::MovingAndResizing {
-                                        stream,
-                                        id,
-                                        position,
-                                        size,
-                                    },
-                                ))
-                            }
-                            _ => Some((
-                                vec![(id, Event::Moved(position))],
-                                State::Idle { stream },
-                            )),
-                        }
-                    }
-                    State::Resizing {
-                        mut stream,
-                        id,
-                        size,
-                    } => {
-                        let next_event =
-                            tokio::time::timeout(TIMEOUT, stream.next()).await;
-
-                        match next_event {
-                            Ok(Some((next_id, Event::Resized(size))))
-                                if next_id == id =>
-                            {
-                                Some((
+                                ),
+                                Event::Resized(size) => (
                                     vec![],
                                     State::Resizing { stream, id, size },
-                                ))
-                            }
-                            Ok(Some((next_id, Event::Moved(position))))
-                                if next_id == id =>
-                            {
-                                Some((
-                                    vec![],
-                                    State::MovingAndResizing {
-                                        stream,
+                                ),
+                                Event::Focused => (
+                                    vec![(id, Event::Focused)],
+                                    State::Idle { stream },
+                                ),
+                                Event::Unfocused => (
+                                    vec![(id, Event::Unfocused)],
+                                    State::Idle { stream },
+                                ),
+                                Event::Opened { position, size } => (
+                                    vec![(
                                         id,
-                                        position,
-                                        size,
-                                    },
-                                ))
-                            }
-                            _ => Some((
-                                vec![(id, Event::Resized(size))],
-                                State::Idle { stream },
-                            )),
+                                        Event::Opened { position, size },
+                                    )],
+                                    State::Idle { stream },
+                                ),
+                                Event::CloseRequested => (
+                                    vec![(id, Event::CloseRequested)],
+                                    State::Idle { stream },
+                                ),
+                                Event::FileHovered => (
+                                    vec![(id, Event::FileHovered)],
+                                    State::Idle { stream },
+                                ),
+                                Event::FilesHoveredLeft => (
+                                    vec![(id, Event::FilesHoveredLeft)],
+                                    State::Idle { stream },
+                                ),
+                                Event::FileDropped(path) => (
+                                    vec![(id, Event::FileDropped(path))],
+                                    State::Idle { stream },
+                                ),
+                            })
                         }
-                    }
-                    State::MovingAndResizing {
-                        mut stream,
-                        id,
-                        position,
-                        size,
-                    } => {
-                        let next_event =
-                            tokio::time::timeout(TIMEOUT, stream.next()).await;
+                        State::Moving {
+                            mut stream,
+                            id,
+                            position,
+                        } => {
+                            let next_event = data::platform::time::timeout(
+                                TIMEOUT,
+                                stream.next(),
+                            )
+                            .await;
 
-                        match next_event {
-                            Ok(Some((next_id, Event::Moved(position))))
-                                if next_id == id =>
-                            {
-                                Some((
-                                    vec![],
-                                    State::MovingAndResizing {
-                                        stream,
-                                        id,
-                                        position,
-                                        size,
-                                    },
-                                ))
+                            match next_event {
+                                Ok(Some((next_id, Event::Moved(position))))
+                                    if next_id == id =>
+                                {
+                                    Some((
+                                        vec![],
+                                        State::Moving {
+                                            stream,
+                                            id,
+                                            position,
+                                        },
+                                    ))
+                                }
+                                Ok(Some((next_id, Event::Resized(size))))
+                                    if next_id == id =>
+                                {
+                                    Some((
+                                        vec![],
+                                        State::MovingAndResizing {
+                                            stream,
+                                            id,
+                                            position,
+                                            size,
+                                        },
+                                    ))
+                                }
+                                _ => Some((
+                                    vec![(id, Event::Moved(position))],
+                                    State::Idle { stream },
+                                )),
                             }
-                            Ok(Some((next_id, Event::Resized(size))))
-                                if next_id == id =>
-                            {
-                                Some((
-                                    vec![],
-                                    State::MovingAndResizing {
-                                        stream,
-                                        id,
-                                        position,
-                                        size,
-                                    },
-                                ))
+                        }
+                        State::Resizing {
+                            mut stream,
+                            id,
+                            size,
+                        } => {
+                            let next_event = data::platform::time::timeout(
+                                TIMEOUT,
+                                stream.next(),
+                            )
+                            .await;
+
+                            match next_event {
+                                Ok(Some((next_id, Event::Resized(size))))
+                                    if next_id == id =>
+                                {
+                                    Some((
+                                        vec![],
+                                        State::Resizing { stream, id, size },
+                                    ))
+                                }
+                                Ok(Some((next_id, Event::Moved(position))))
+                                    if next_id == id =>
+                                {
+                                    Some((
+                                        vec![],
+                                        State::MovingAndResizing {
+                                            stream,
+                                            id,
+                                            position,
+                                            size,
+                                        },
+                                    ))
+                                }
+                                _ => Some((
+                                    vec![(id, Event::Resized(size))],
+                                    State::Idle { stream },
+                                )),
                             }
-                            _ => Some((
-                                vec![
-                                    (id, Event::Moved(position)),
-                                    (id, Event::Resized(size)),
-                                ],
-                                State::Idle { stream },
-                            )),
+                        }
+                        State::MovingAndResizing {
+                            mut stream,
+                            id,
+                            position,
+                            size,
+                        } => {
+                            let next_event = data::platform::time::timeout(
+                                TIMEOUT,
+                                stream.next(),
+                            )
+                            .await;
+
+                            match next_event {
+                                Ok(Some((next_id, Event::Moved(position))))
+                                    if next_id == id =>
+                                {
+                                    Some((
+                                        vec![],
+                                        State::MovingAndResizing {
+                                            stream,
+                                            id,
+                                            position,
+                                            size,
+                                        },
+                                    ))
+                                }
+                                Ok(Some((next_id, Event::Resized(size))))
+                                    if next_id == id =>
+                                {
+                                    Some((
+                                        vec![],
+                                        State::MovingAndResizing {
+                                            stream,
+                                            id,
+                                            position,
+                                            size,
+                                        },
+                                    ))
+                                }
+                                _ => Some((
+                                    vec![
+                                        (id, Event::Moved(position)),
+                                        (id, Event::Resized(size)),
+                                    ],
+                                    State::Idle { stream },
+                                )),
+                            }
                         }
                     }
-                }
-            },
+                },
+            )
+            .map(stream::iter)
+            .flatten(),
         )
-        .map(stream::iter)
-        .flatten()
-        .boxed()
     }
 }

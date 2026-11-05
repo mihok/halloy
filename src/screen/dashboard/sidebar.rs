@@ -111,7 +111,7 @@ impl Sidebar {
                 collapse: collapse::State::default(),
                 system_information: None,
             },
-            iced::system::information().map(Message::SystemInformation),
+            crate::system_information().map(Message::SystemInformation),
         )
     }
 

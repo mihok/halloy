@@ -13,7 +13,7 @@ iosevka-font = []
 tor = ["data/tor"]
 
 [workspace]
-members = ["data", "ipc", "irc", "irc/proto", "web/smoke"]
+members = ["data", "ipc", "irc", "irc/proto", "web/smoke", "web/rfd-web"]
 
 [workspace.package]
 version = "0.1.0"
@@ -59,14 +59,12 @@ percent-encoding = "2.3.2"
 
 [dependencies]
 hashbrown = { workspace = true }
-tokio = { workspace = true, features = ["rt", "fs", "process"] }
 futures = { workspace = true }
 thiserror = { workspace = true }
 chrono = { workspace = true }
 strum = { workspace = true }
 anyhow = { workspace = true }
 url = { workspace = true }
-tokio-stream = { workspace = true, features = ["fs"] }
 timeago = { workspace = true }
 itertools = { workspace = true }
 emojis = { workspace = true }
@@ -74,12 +72,29 @@ rand = { workspace = true }
 rand_chacha = { workspace = true }
 palette = { workspace = true }
 log = { workspace = true }
-uptime_lib = { workspace = true }
 nucleo-matcher = { workspace = true }
-reqwest = { workspace = true }
 const_format = { workspace = true }
 dirs-next = "2.0.0"
 image = "0.25"
+percent-encoding = { workspace = true }
+
+data = { version = "0.1.0", path = "data" }
+irc = { version = "0.1.0", path = "irc" }
+
+fern = "0.7.1"
+unicode-segmentation = "1.6"
+bytesize = "2.0.1"
+humantime = "2.2.0"
+strsim = "0.11.1"
+uuid = { version = "1.23", features = ["v7"] }
+
+# Native (desktop) builds.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tokio = { workspace = true, features = ["rt", "fs", "process"] }
+tokio-stream = { workspace = true, features = ["fs"] }
+uptime_lib = { workspace = true }
+reqwest = { workspace = true }
+ipc = { version = "0.1.0", path = "ipc" }
 iced = { workspace = true, features = [
     "wgpu",
     "tiny-skia",
@@ -94,32 +109,65 @@ iced = { workspace = true, features = [
     "web-colors",
     "highlighter",
 ] }
-percent-encoding = { workspace = true }
-
-data = { version = "0.1.0", path = "data" }
-ipc = { version = "0.1.0", path = "ipc" }
-irc = { version = "0.1.0", path = "irc" }
-
 signal-hook = "0.3.18"
 notify-rust = { version = "4.18", features = [ "images" ] }
-fern = "0.7.1"
-unicode-segmentation = "1.6"
 open = { version = "5.4.4", features = ["shellexecute-on-windows"] }
-bytesize = "2.0.1"
 rodio = "0.22.0"
-humantime = "2.2.0"
-strsim = "0.11.1"
 rfd = { version = "0.15.2", default-features = false, features = [
     "xdg-portal",
     "tokio",
 ] }
-uuid = { version = "1.23", features = ["v7"] }
 netwatcher = { version = "0.8.0", features = ["tokio"] }
 mundy = { version = "0.1.9", default-features = false, features = [
     "color-scheme",
     "tokio",
     "log",
 ] }
+
+# Web port (wasm32). See web/PORTING.md.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+tokio = { workspace = true, features = ["rt", "sync", "macros", "io-util"] }
+tokio-stream = { workspace = true }
+reqwest = { version = "0.13", default-features = false, features = ["json", "stream"] }
+iced = { workspace = true, features = [
+    "wgpu",
+    "webgl",
+    "tiny-skia",
+    "fira-sans",
+    "advanced",
+    "image",
+    "svg",
+    "crisp",
+    "web-colors",
+    "highlighter",
+    "sysinfo",
+] }
+wasm-bindgen = "=0.2.108"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Location",
+    "Document",
+    "Element",
+    "Navigator",
+    "Blob",
+    "Url",
+    "HtmlAudioElement",
+    "HtmlMediaElement",
+    "Notification",
+    "NotificationOptions",
+    "NotificationPermission",
+    "MediaQueryList",
+    "MediaQueryListEvent",
+    "console",
+] }
+console_log = "1"
+console_error_panic_hook = "0.1"
+getrandom = { version = "0.4", features = ["wasm_js"] }
+uuid = { version = "1.23", features = ["v7", "js"] }
+# browser file dialogs with the rfd API (web/rfd-web)
+rfd-web = { path = "web/rfd-web" }
 
 [dev-dependencies]
 iced = { workspace = true, features = [

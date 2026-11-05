@@ -12,6 +12,7 @@ use data::dashboard::BufferAction;
 use data::history::{self, model, storage};
 use data::isupport::ChathistoryState;
 use data::message::{self, Limit, Searchable, Temporal};
+use data::platform::time;
 use data::preview::{self, Previews};
 use data::rate_limit::TokenPriority;
 use data::reaction::Reaction;
@@ -24,7 +25,6 @@ use iced::widget::{
     space, text,
 };
 use iced::{Length, Size, Task, padding};
-use tokio::time;
 
 use self::correct_viewport::correct_viewport;
 use self::keyed::keyed;

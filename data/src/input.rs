@@ -528,8 +528,8 @@ impl Storage {
     pub fn clear() -> Result<(), storage::Error> {
         let path = draft_path();
 
-        if path.exists() {
-            Ok(std::fs::remove_file(path)?)
+        if crate::platform::fs::sync::exists(&path).unwrap_or(false) {
+            Ok(crate::platform::fs::sync::remove_file(path)?)
         } else {
             Ok(())
         }
@@ -577,7 +577,7 @@ async fn save_drafts(
 
 fn load_drafts() -> Result<HashMap<buffer::Upstream, SavedDraft>, storage::Error>
 {
-    let bytes = match std::fs::read(draft_path()) {
+    let bytes = match crate::platform::fs::sync::read(draft_path()) {
         Ok(bytes) => bytes,
         Err(error) => {
             if matches!(error.kind(), io::ErrorKind::NotFound) {

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use data::appearance::theme::FontStyle;
+use data::platform::time;
 use data::{Config, url};
 use futures::TryFutureExt;
 use iced::Length::*;
@@ -12,7 +13,6 @@ use iced::widget::{
 };
 use iced::{Color, Length, Padding, Task, Vector, alignment, clipboard};
 use strum::IntoEnumIterator;
-use tokio::time;
 
 use crate::theme::{self, Styles, Theme};
 use crate::widget::{Element, color_picker, font_style_pick_list, tooltip};

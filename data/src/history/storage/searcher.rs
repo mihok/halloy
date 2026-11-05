@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
+#[cfg(not(target_arch = "wasm32"))]
 use std::thread;
 
 use futures::channel::oneshot;
@@ -42,15 +43,15 @@ impl Searcher {
         let interrupt = Arc::new(Mutex::new(None));
         let handle = interrupt.clone();
 
-        thread::spawn(move || {
-            let mut connection = None;
-
-            while let Ok(mut request) = receiver.recv() {
+        let mut connection = None;
+        // Coalesce to the newest queued request, then run it.
+        let mut handle_request =
+            move |receiver: &mpsc::Receiver<Request>, mut request: Request| {
                 while let Ok(newer) = receiver.try_recv() {
                     request = newer;
                 }
                 if request.reply.is_canceled() {
-                    continue;
+                    return;
                 }
 
                 let result = open(&mut connection, path.as_deref(), &handle)
@@ -67,6 +68,29 @@ impl Searcher {
                     });
 
                 let _ = request.reply.send(result);
+            };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        thread::spawn(move || {
+            while let Ok(request) = receiver.recv() {
+                handle_request(&receiver, request);
+            }
+        });
+
+        // Browser: no threads; poll the channel from a task instead.
+        #[cfg(target_arch = "wasm32")]
+        crate::platform::spawn(async move {
+            loop {
+                match receiver.try_recv() {
+                    Ok(request) => handle_request(&receiver, request),
+                    Err(mpsc::TryRecvError::Empty) => {
+                        crate::platform::time::sleep(
+                            std::time::Duration::from_millis(25),
+                        )
+                        .await;
+                    }
+                    Err(mpsc::TryRecvError::Disconnected) => break,
+                }
             }
         });
 

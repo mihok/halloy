@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use data::config::{Font, Runtime};
+use data::platform::time;
 use iced::widget::text::Wrapping;
 use iced::widget::{
     Space, button, center, column, container, image, row, rule, text,
 };
 use iced::{Length, Task, alignment, clipboard};
-use tokio::time;
 
 use super::Message as ModalMessage;
 use crate::widget::{self, Element};

@@ -3665,7 +3665,7 @@ impl Paths {
             Path::new(dir_prefix)
         };
 
-        let Ok(read_dir) = std::fs::read_dir(dir) else {
+        let Ok(read_dir) = data::platform::fs::sync::read_dir(dir) else {
             *self = Self::default();
             return;
         };

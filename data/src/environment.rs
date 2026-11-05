@@ -20,14 +20,34 @@ pub fn formatted_version() -> String {
     format!("{VERSION}{hash}")
 }
 
+// Browser build: directories live in the in-memory filesystem
+// (data::platform::fs).
+#[cfg(target_arch = "wasm32")]
+pub fn config_dir() -> PathBuf {
+    PathBuf::from("/halloy/config")
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn data_dir() -> PathBuf {
+    PathBuf::from("/halloy/data")
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn cache_dir() -> PathBuf {
+    PathBuf::from("/halloy/cache")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn config_dir() -> PathBuf {
     portable_dir().unwrap_or_else(platform_specific_config_dir)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn data_dir() -> PathBuf {
     portable_dir().unwrap_or_else(platform_specific_data_dir)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn cache_dir() -> PathBuf {
     dirs_next::cache_dir()
         .expect("expected valid cache dir")
@@ -37,6 +57,7 @@ pub fn cache_dir() -> PathBuf {
 /// Checks if a portable dir is explicitly set or if a config file
 /// exists in the same directory as the executable.
 /// If so, it'll use that directory for both config & data dirs.
+#[cfg(not(target_arch = "wasm32"))]
 fn portable_dir() -> Option<PathBuf> {
     if let Some(path) = env::var_os("HALLOY_PORTABLE_DIR") {
         let path = PathBuf::from(path);
@@ -55,6 +76,7 @@ fn portable_dir() -> Option<PathBuf> {
         .then(|| dir.to_path_buf())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn platform_specific_config_dir() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
@@ -87,6 +109,7 @@ fn xdg_config_dir() -> Option<PathBuf> {
         .then_some(halloy_config_dir)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn platform_specific_data_dir() -> PathBuf {
     #[cfg(target_os = "macos")]
     {

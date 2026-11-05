@@ -9,6 +9,13 @@ pub use tokio::fs::*;
 #[cfg(not(target_arch = "wasm32"))]
 pub use tokio_stream::wrappers::ReadDirStream;
 
+/// Blocking file operations: `std::fs` on desktop; the same in-memory
+/// filesystem, accessed synchronously, in the browser.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod sync {
+    pub use std::fs::*;
+}
+
 #[cfg(target_arch = "wasm32")]
 pub use self::memory::*;
 
@@ -68,10 +75,14 @@ mod memory {
             .map_or(0.0, |d| d.as_millis() as f64)
     }
 
-    pub async fn read(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
+    fn read_sync(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
         let p = norm(path.as_ref());
         VFS.with_borrow(|v| v.files.get(&p).map(|(b, _)| b.clone()))
             .ok_or_else(|| not_found(&p))
+    }
+
+    pub async fn read(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
+        read_sync(path)
     }
 
     pub async fn read_to_string(path: impl AsRef<Path>) -> io::Result<String> {
@@ -79,7 +90,7 @@ mod memory {
             .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
-    pub async fn write(
+    fn write_sync(
         path: impl AsRef<Path>,
         contents: impl AsRef<[u8]>,
     ) -> io::Result<()> {
@@ -96,7 +107,16 @@ mod memory {
         })
     }
 
-    pub async fn create_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
+    pub async fn write(
+        path: impl AsRef<Path>,
+        contents: impl AsRef<[u8]>,
+    ) -> io::Result<()> {
+        write_sync(path, contents)
+    }
+
+    // Same signature as the tokio/std function it stands in for.
+    #[allow(clippy::unnecessary_wraps)]
+    fn create_dir_all_sync(path: impl AsRef<Path>) -> io::Result<()> {
         let p = norm(path.as_ref());
         VFS.with_borrow_mut(|v| {
             for a in p.ancestors() {
@@ -106,7 +126,11 @@ mod memory {
         Ok(())
     }
 
-    pub async fn create_dir(path: impl AsRef<Path>) -> io::Result<()> {
+    pub async fn create_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
+        create_dir_all_sync(path)
+    }
+
+    fn create_dir_sync(path: impl AsRef<Path>) -> io::Result<()> {
         let p = norm(path.as_ref());
         VFS.with_borrow_mut(|v| {
             if v.dirs.contains(&p) {
@@ -120,14 +144,22 @@ mod memory {
         })
     }
 
-    pub async fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
+    pub async fn create_dir(path: impl AsRef<Path>) -> io::Result<()> {
+        create_dir_sync(path)
+    }
+
+    fn remove_file_sync(path: impl AsRef<Path>) -> io::Result<()> {
         let p = norm(path.as_ref());
         VFS.with_borrow_mut(|v| {
             v.files.remove(&p).map(|_| ()).ok_or_else(|| not_found(&p))
         })
     }
 
-    pub async fn rename(
+    pub async fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
+        remove_file_sync(path)
+    }
+
+    fn rename_sync(
         from: impl AsRef<Path>,
         to: impl AsRef<Path>,
     ) -> io::Result<()> {
@@ -139,13 +171,43 @@ mod memory {
         })
     }
 
-    pub async fn try_exists(path: impl AsRef<Path>) -> io::Result<bool> {
+    pub async fn rename(
+        from: impl AsRef<Path>,
+        to: impl AsRef<Path>,
+    ) -> io::Result<()> {
+        rename_sync(from, to)
+    }
+
+    fn copy_sync(
+        from: impl AsRef<Path>,
+        to: impl AsRef<Path>,
+    ) -> io::Result<u64> {
+        let bytes = read_sync(from)?;
+        let len = bytes.len() as u64;
+        write_sync(to, bytes)?;
+        Ok(len)
+    }
+
+    pub async fn copy(
+        from: impl AsRef<Path>,
+        to: impl AsRef<Path>,
+    ) -> io::Result<u64> {
+        copy_sync(from, to)
+    }
+
+    // Same signature as the tokio/std function it stands in for.
+    #[allow(clippy::unnecessary_wraps)]
+    fn try_exists_sync(path: impl AsRef<Path>) -> io::Result<bool> {
         let p = norm(path.as_ref());
         Ok(
             VFS.with_borrow(|v| {
                 v.files.contains_key(&p) || v.dirs.contains(&p)
             }),
         )
+    }
+
+    pub async fn try_exists(path: impl AsRef<Path>) -> io::Result<bool> {
+        try_exists_sync(path)
     }
 
     #[derive(Debug, Clone)]
@@ -173,7 +235,7 @@ mod memory {
         }
     }
 
-    pub async fn metadata(path: impl AsRef<Path>) -> io::Result<Metadata> {
+    fn metadata_sync(path: impl AsRef<Path>) -> io::Result<Metadata> {
         let p = norm(path.as_ref());
         VFS.with_borrow(|v| {
             if let Some((b, t)) = v.files.get(&p) {
@@ -195,14 +257,38 @@ mod memory {
         .ok_or_else(|| not_found(&p))
     }
 
+    pub async fn metadata(path: impl AsRef<Path>) -> io::Result<Metadata> {
+        metadata_sync(path)
+    }
+
     #[derive(Debug, Clone)]
     pub struct DirEntry {
         path: PathBuf,
+        is_dir: bool,
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub struct FileType {
+        is_dir: bool,
+    }
+
+    impl FileType {
+        pub fn is_dir(&self) -> bool {
+            self.is_dir
+        }
+        pub fn is_file(&self) -> bool {
+            !self.is_dir
+        }
     }
 
     impl DirEntry {
         pub fn path(&self) -> PathBuf {
             self.path.clone()
+        }
+        pub fn file_type(&self) -> io::Result<FileType> {
+            Ok(FileType {
+                is_dir: self.is_dir,
+            })
         }
         pub fn file_name(&self) -> OsString {
             self.path
@@ -223,6 +309,10 @@ mod memory {
     }
 
     pub async fn read_dir(path: impl AsRef<Path>) -> io::Result<ReadDir> {
+        read_dir_sync(path)
+    }
+
+    fn read_dir_sync(path: impl AsRef<Path>) -> io::Result<ReadDir> {
         let p = norm(path.as_ref());
         VFS.with_borrow(|v| {
             if !v.dirs.contains(&p) {
@@ -231,9 +321,13 @@ mod memory {
             let children = v
                 .files
                 .keys()
-                .chain(v.dirs.iter())
-                .filter(|c| c.parent() == Some(p.as_path()))
-                .map(|c| DirEntry { path: c.clone() })
+                .map(|c| (c, false))
+                .chain(v.dirs.iter().map(|c| (c, true)))
+                .filter(|(c, _)| c.parent() == Some(p.as_path()))
+                .map(|(c, is_dir)| DirEntry {
+                    path: c.clone(),
+                    is_dir,
+                })
                 .collect::<Vec<_>>();
             Ok(ReadDir {
                 entries: children.into_iter(),
@@ -257,6 +351,61 @@ mod memory {
             _cx: &mut Context<'_>,
         ) -> Poll<Option<Self::Item>> {
             Poll::Ready(self.get_mut().0.entries.next().map(Ok))
+        }
+    }
+
+    /// `std::fs`-shaped, synchronous access to the same in-memory
+    /// filesystem (desktop: `std::fs` itself).
+    pub mod sync {
+        use std::io;
+        use std::path::Path;
+
+        pub use super::{DirEntry, FileType, Metadata};
+
+        pub fn read(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
+            super::read_sync(path)
+        }
+        pub fn read_to_string(path: impl AsRef<Path>) -> io::Result<String> {
+            String::from_utf8(super::read_sync(path)?)
+                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        }
+        pub fn write(
+            path: impl AsRef<Path>,
+            contents: impl AsRef<[u8]>,
+        ) -> io::Result<()> {
+            super::write_sync(path, contents)
+        }
+        pub fn create_dir_all(path: impl AsRef<Path>) -> io::Result<()> {
+            super::create_dir_all_sync(path)
+        }
+        pub fn create_dir(path: impl AsRef<Path>) -> io::Result<()> {
+            super::create_dir_sync(path)
+        }
+        pub fn remove_file(path: impl AsRef<Path>) -> io::Result<()> {
+            super::remove_file_sync(path)
+        }
+        pub fn rename(
+            from: impl AsRef<Path>,
+            to: impl AsRef<Path>,
+        ) -> io::Result<()> {
+            super::rename_sync(from, to)
+        }
+        pub fn copy(
+            from: impl AsRef<Path>,
+            to: impl AsRef<Path>,
+        ) -> io::Result<u64> {
+            super::copy_sync(from, to)
+        }
+        pub fn exists(path: impl AsRef<Path>) -> io::Result<bool> {
+            super::try_exists_sync(path)
+        }
+        pub fn metadata(path: impl AsRef<Path>) -> io::Result<Metadata> {
+            super::metadata_sync(path)
+        }
+        pub fn read_dir(
+            path: impl AsRef<Path>,
+        ) -> io::Result<impl Iterator<Item = io::Result<DirEntry>>> {
+            Ok(super::read_dir_sync(path)?.entries.map(Ok))
         }
     }
 

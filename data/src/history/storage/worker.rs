@@ -2,8 +2,9 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Weak, mpsc};
+#[cfg(not(target_arch = "wasm32"))]
+use std::thread;
 use std::time::Duration;
-use std::{fs, thread};
 
 use hashbrown::HashSet;
 use rusqlite::Connection;
@@ -105,7 +106,7 @@ impl Worker {
         let queued = Arc::new(AtomicUsize::new(0));
         let output = events.clone();
         let count = queued.clone();
-        thread::spawn(move || {
+        let init = move || {
             let mut state = State {
                 database: None,
                 path,
@@ -129,39 +130,62 @@ impl Worker {
                 Ok(database) => state.database = Some(database),
                 Err(error) => state.fail(error),
             }
+            state
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        thread::spawn(move || {
+            let mut state = init();
             let mut changed_at: Option<Instant> = None;
             loop {
-                let received = if state.index_backlog {
-                    receiver.recv_timeout(Duration::ZERO)
-                } else if let Some(changed_at) = changed_at {
-                    receiver.recv_timeout(
-                        INDEX_INTERVAL.saturating_sub(changed_at.elapsed()),
-                    )
-                } else {
-                    receiver
+                let received = match next_wait(&state, changed_at) {
+                    Some(wait) => receiver.recv_timeout(wait),
+                    None => receiver
                         .recv()
-                        .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+                        .map_err(|_| mpsc::RecvTimeoutError::Disconnected),
                 };
-                match received {
-                    Ok(command) => {
-                        changed_at.get_or_insert_with(Instant::now);
-                        if state.accept(command) {
-                            break;
-                        }
-                    }
-                    Err(mpsc::RecvTimeoutError::Timeout) => (),
-                    Err(mpsc::RecvTimeoutError::Disconnected) => break,
-                }
-                if state.index_backlog
-                    || changed_at.is_some_and(|changed_at| {
-                        changed_at.elapsed() >= INDEX_INTERVAL
-                    })
-                {
-                    state.index();
-                    changed_at = None;
+                if step(&mut state, &mut changed_at, received) {
+                    break;
                 }
             }
         });
+
+        // Browser: no threads. Run the same loop as a task on the page's
+        // executor, draining the channel and yielding between polls.
+        #[cfg(target_arch = "wasm32")]
+        crate::platform::spawn(async move {
+            const IDLE_POLL: Duration = Duration::from_millis(25);
+
+            let mut state = init();
+            let mut changed_at: Option<Instant> = None;
+            loop {
+                let received = match receiver.try_recv() {
+                    Ok(command) => Ok(command),
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        Err(mpsc::RecvTimeoutError::Disconnected)
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {
+                        let wait = next_wait(&state, changed_at);
+                        if wait != Some(Duration::ZERO) {
+                            crate::platform::time::sleep(
+                                wait.map_or(IDLE_POLL, |wait| {
+                                    wait.min(IDLE_POLL)
+                                }),
+                            )
+                            .await;
+                        } else {
+                            // indexing a backlog; let the page breathe
+                            crate::platform::time::sleep(Duration::ZERO).await;
+                        }
+                        Err(mpsc::RecvTimeoutError::Timeout)
+                    }
+                };
+                if step(&mut state, &mut changed_at, received) {
+                    break;
+                }
+            }
+        });
+
         Self {
             sender,
             events,
@@ -172,6 +196,43 @@ impl Worker {
     pub fn send(&self, command: Command) {
         enqueue(&self.sender, &self.queued, &self.events, command);
     }
+}
+
+/// How long the worker may wait for the next command; `None` = indefinitely.
+fn next_wait(state: &State, changed_at: Option<Instant>) -> Option<Duration> {
+    if state.index_backlog {
+        Some(Duration::ZERO)
+    } else {
+        changed_at.map(|changed_at| {
+            INDEX_INTERVAL.saturating_sub(changed_at.elapsed())
+        })
+    }
+}
+
+/// Handle one receive result; returns true when the worker should stop.
+fn step(
+    state: &mut State,
+    changed_at: &mut Option<Instant>,
+    received: Result<Command, mpsc::RecvTimeoutError>,
+) -> bool {
+    match received {
+        Ok(command) => {
+            changed_at.get_or_insert_with(Instant::now);
+            if state.accept(command) {
+                return true;
+            }
+        }
+        Err(mpsc::RecvTimeoutError::Timeout) => (),
+        Err(mpsc::RecvTimeoutError::Disconnected) => return true,
+    }
+    if state.index_backlog
+        || changed_at
+            .is_some_and(|changed_at| changed_at.elapsed() >= INDEX_INTERVAL)
+    {
+        state.index();
+        *changed_at = None;
+    }
+    false
 }
 
 fn enqueue(
@@ -239,14 +300,20 @@ impl State {
     }
 
     fn open(&self) -> Result<database::Database, String> {
+        // Browser: no persistent SQLite storage yet; keep history for the
+        // session (the server replays CHATHISTORY on reconnect).
+        #[cfg(target_arch = "wasm32")]
+        let connection = Connection::open_in_memory()
+            .map_err(|e| format!("opening the history database: {e}"))?;
+        #[cfg(not(target_arch = "wasm32"))]
         let connection = if let Some(path) = &self.path {
-            fs::create_dir_all(path).map_err(string)?;
+            crate::platform::fs::sync::create_dir_all(path).map_err(string)?;
             Connection::open(path.join(database::FILE_NAME)).map_err(string)?
         } else {
             Connection::open_in_memory().map_err(string)?
         };
-        let mut database =
-            database::Database::new(connection).map_err(string)?;
+        let mut database = database::Database::new(connection)
+            .map_err(|e| format!("preparing the history database: {e}"))?;
         let mut transaction = database.transaction().map_err(string)?;
         transaction.clear(&Kind::Logs).map_err(string)?;
         transaction
@@ -294,7 +361,7 @@ impl State {
             let events = self.events.clone();
             let server_messages_config = self.server_messages_config.clone();
             self.active_imports += 1;
-            thread::spawn(move || {
+            let import = move || {
                 let result =
                     legacy::load(&path, &kind, &server_messages_config);
                 enqueue(
@@ -303,7 +370,12 @@ impl State {
                     &events,
                     Command::Imported(kind, result),
                 );
-            });
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            thread::spawn(import);
+            // Browser: no legacy history files exist; run inline.
+            #[cfg(target_arch = "wasm32")]
+            import();
         }
     }
 
@@ -668,6 +740,8 @@ fn retry<T>(
                 {
                     return Err(string(error));
                 }
+                // The browser can't block the thread; retry immediately.
+                #[cfg(not(target_arch = "wasm32"))]
                 thread::sleep(Duration::from_millis(50 * (attempt + 1)));
             }
         }

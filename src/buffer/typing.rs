@@ -1,11 +1,12 @@
 use std::f32::consts::PI;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use data::config::buffer::Style;
 use data::history::filter::FilterChain;
 use data::isupport::CaseMap;
 use data::user::Nick;
 use data::{Config, Server, User, target};
+use iced::time::Instant;
 use iced::widget::{column, container, row};
 use iced::{Color, padding};
 

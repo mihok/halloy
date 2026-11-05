@@ -68,11 +68,12 @@ fn play_frames(
     path: PathBuf,
     connection: animated_image::Connection,
 ) -> Task<Message> {
-    let mut next_frame_at = tokio::time::Instant::now();
+    let mut next_frame_at = data::platform::time::Instant::now();
     Task::run(animation::frames(path), std::convert::identity).then(
         move |frame| match frame {
             Ok(animation::Frame { pixels, delay }) => {
-                let present_at = next_frame_at.max(tokio::time::Instant::now());
+                let present_at =
+                    next_frame_at.max(data::platform::time::Instant::now());
                 next_frame_at = present_at + delay;
                 let (width, height) = pixels.dimensions();
                 let handle =
@@ -82,7 +83,7 @@ fn play_frames(
                 let connection = connection.clone();
                 Task::future(async move {
                     let frame = connection.allocate(handle).await?;
-                    tokio::time::sleep_until(present_at).await;
+                    data::platform::time::sleep_until(present_at).await;
                     connection.present(frame).await
                 })
                 .then(move |result| match result {

@@ -26,11 +26,11 @@ impl KnownFilehosts {
             }
         };
 
-        if !path.exists() {
+        if !crate::platform::fs::sync::exists(&path).unwrap_or(false) {
             return Self::default();
         }
 
-        match std::fs::read_to_string(&path) {
+        match crate::platform::fs::sync::read_to_string(&path) {
             Ok(contents) => Self {
                 urls: contents.lines().map(str::to_owned).collect(),
             },
@@ -62,7 +62,7 @@ impl KnownFilehosts {
 fn path() -> Result<PathBuf, io::Error> {
     let parent = environment::data_dir();
     if !parent.exists() {
-        std::fs::create_dir_all(&parent)?;
+        crate::platform::fs::sync::create_dir_all(&parent)?;
     }
     Ok(parent.join("known_filehosts"))
 }

@@ -1,5 +1,3 @@
-use std::thread;
-
 use chrono::{DateTime, TimeDelta, Utc};
 use data::audio::Sound;
 use data::buffer::{self, Buffer};
@@ -17,6 +15,7 @@ use self::toast::Toast;
 pub use self::toast::prepare;
 use crate::audio;
 
+#[cfg_attr(target_arch = "wasm32", path = "notification/toast_web.rs")]
 pub mod toast;
 
 #[derive(Debug)]
@@ -89,7 +88,7 @@ pub struct Notifications {
     recent_notifications: HashMap<NotificationDelayKey, DateTime<Utc>>,
     sounds: HashMap<String, Sound>,
     sender: mpsc::Sender<Event>,
-    audio: Option<thread::JoinHandle<()>>,
+    audio: Option<audio::Handle>,
 }
 
 impl Notifications {
@@ -517,7 +516,7 @@ impl Notifications {
             let sender = self.sender.clone();
             let buffer = buffer.clone();
 
-            tokio::task::spawn(async move {
+            data::platform::spawn(async move {
                 let _ = sender.send(Event::RequestAttention { buffer }).await;
             });
         }
@@ -599,10 +598,7 @@ impl Notifications {
             .or_else(|| config.sound.choose(&mut rng));
 
         if let Some(sound) = sound.and_then(|sound| self.sounds.get(sound))
-            && self
-                .audio
-                .as_ref()
-                .is_none_or(thread::JoinHandle::is_finished)
+            && self.audio.as_ref().is_none_or(audio::Handle::is_finished)
         {
             self.audio = Some(audio::play(sound.clone()));
         }

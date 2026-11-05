@@ -2,7 +2,7 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::convert;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use data::buffer::{self, BuffersContext, Upstream};
 use data::capabilities::{
@@ -14,6 +14,7 @@ use data::dashboard::BufferAction;
 use data::history::filter::FilterChain;
 use data::history::{self, model, storage};
 use data::input::{self, CodeFence, RawInput};
+use data::platform::time;
 use data::rate_limit::TokenPriority;
 use data::server::Server;
 use data::target::Target;
@@ -23,6 +24,7 @@ use iced::Length::Fit;
 use iced::advanced::widget::Tree;
 use iced::advanced::{Layout, Shell, mouse};
 use iced::keyboard::{Key, key};
+use iced::time::Instant;
 use iced::widget::text::{self, Wrapping};
 use iced::widget::{
     self, Space, button, center, column, container, mouse_area, operation, row,
@@ -30,7 +32,6 @@ use iced::widget::{
 };
 use iced::{Alignment, Length, Task, clipboard, event, keyboard, padding};
 use itertools::Itertools;
-use tokio::time;
 use unicode_segmentation::UnicodeSegmentation;
 
 use self::completion::Completion;
@@ -879,7 +880,7 @@ impl State {
                     sysinfo_config
                         .uptime
                         .then(|| {
-                            uptime_lib::get().ok().map(|uptime| {
+                            uptime().map(|uptime| {
                                 let mut formatter = timeago::Formatter::new();
                                 formatter.num_items(4);
                                 format!("UP: {}", formatter.convert(uptime))
@@ -2288,7 +2289,7 @@ impl State {
                     }
                     command::Internal::SysInfo => {
                         return (
-                            iced::system::information()
+                            crate::system_information()
                                 .map(Message::SysInfoReceived),
                             None,
                         );
@@ -2309,7 +2310,9 @@ impl State {
                     }
                     command::Internal::Upload(path) => {
                         let file_path = std::path::PathBuf::from(&path);
-                        if !file_path.exists() {
+                        if !data::platform::fs::sync::exists(&file_path)
+                            .unwrap_or(false)
+                        {
                             self.notice = Some(Notice::Error(format!(
                                 "file not found: {path}"
                             )));
@@ -3036,7 +3039,7 @@ fn handle_text_clipboard_content(
                 let path = std::env::temp_dir()
                     .join(format!("halloy-paste-{}.txt", uuid::Uuid::now_v7()));
 
-                std::fs::write(&path, text.as_bytes()).ok()?;
+                data::platform::fs::sync::write(&path, text.as_bytes()).ok()?;
 
                 Some(Task::done(Message::FilesSelected(vec![path])))
             } else {
@@ -3276,6 +3279,17 @@ fn reset_undo_history(content: &mut text_editor::Content) {
 
     *content = text_editor::Content::with_text(&text);
     content.move_to(cursor);
+}
+
+/// System uptime; unavailable in the browser.
+#[cfg(not(target_arch = "wasm32"))]
+fn uptime() -> Option<Duration> {
+    uptime_lib::get().ok()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn uptime() -> Option<Duration> {
+    None
 }
 
 #[cfg(test)]

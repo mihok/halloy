@@ -80,7 +80,7 @@ fn path() -> Result<PathBuf, Error> {
     let parent = environment::data_dir();
 
     if !parent.exists() {
-        std::fs::create_dir_all(&parent)?;
+        crate::platform::fs::sync::create_dir_all(&parent)?;
     }
 
     Ok(parent.join("window.json"))

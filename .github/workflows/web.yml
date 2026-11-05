@@ -20,8 +20,8 @@ jobs:
           targets: wasm32-unknown-unknown
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: irc and data crates build for the browser (clippy, no warnings)
-        run: cargo clippy --target wasm32-unknown-unknown -p irc -p data -- -D warnings
+      - name: web port builds for the browser (clippy, no warnings)
+        run: cargo clippy --target wasm32-unknown-unknown -p irc -p data -p rfd-web -p halloy -- -D warnings
       - name: data crate native tests
         run: |
           sudo apt-get update && sudo apt-get install -y libasound2-dev

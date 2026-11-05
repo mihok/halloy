@@ -1,9 +1,9 @@
 use std::cmp::Ordering;
+use std::io;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use std::{fs, io};
 
 use chrono::{self, DateTime, Local, NaiveDate, Utc};
 use hashbrown::{HashMap, HashSet, hash_map};
@@ -23,6 +23,7 @@ use crate::buffer::{self, BuffersContext};
 use crate::client::ClientsContext;
 use crate::config::buffer::OnMessage;
 use crate::message::{self, Searchable, Source, Temporal, broadcast, source};
+use crate::platform::fs::sync as fs;
 use crate::target::{self, Target};
 use crate::user::Nick;
 use crate::{

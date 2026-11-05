@@ -8,6 +8,7 @@ use iced::Subscription;
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
+#[cfg_attr(target_arch = "wasm32", path = "system/network_web.rs")]
 mod network;
 
 #[derive(Debug, Clone)]

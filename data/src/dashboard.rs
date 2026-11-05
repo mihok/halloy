@@ -107,13 +107,13 @@ impl Dashboard {
     pub fn exists() -> Result<bool, Error> {
         let path = path()?;
 
-        Ok(std::fs::exists(path)?)
+        Ok(crate::platform::fs::sync::exists(path)?)
     }
 
     pub fn load() -> Result<Self, Error> {
         let path = path()?;
 
-        let bytes = std::fs::read(path)?;
+        let bytes = crate::platform::fs::sync::read(path)?;
 
         Ok(compression::decompress(&bytes)?)
     }
@@ -133,7 +133,7 @@ fn path() -> Result<PathBuf, Error> {
     let parent = environment::data_dir();
 
     if !parent.exists() {
-        std::fs::create_dir_all(&parent)?;
+        crate::platform::fs::sync::create_dir_all(&parent)?;
     }
 
     Ok(parent.join("dashboard.json.gz"))

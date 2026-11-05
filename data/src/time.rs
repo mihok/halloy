@@ -1,7 +1,6 @@
-use std::time::SystemTime;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use web_time::SystemTime;
 
 #[derive(
     Debug,

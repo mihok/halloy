@@ -13,6 +13,14 @@ use crate::{
     Server, command, compression, config, isupport, reaction, redaction, target,
 };
 
+/// Browser: there's never legacy (pre-SQLite) history to import.
+#[cfg(target_arch = "wasm32")]
+#[allow(clippy::unnecessary_wraps)] // matches the desktop signature
+pub fn exists(_data_dir: &Path, _kind: &Kind) -> Result<bool, io::Error> {
+    Ok(false)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn exists(data_dir: &Path, kind: &Kind) -> Result<bool, io::Error> {
     let (name, metadata_name) = names(kind);
     let development = data_dir.join("msdb");

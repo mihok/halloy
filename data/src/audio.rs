@@ -1,10 +1,10 @@
-use std::fs::read;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use serde::Deserialize;
 
 use crate::Config;
+use crate::platform::fs::sync::read;
 
 #[derive(Debug, Clone)]
 pub struct Sound(Arc<Vec<u8>>);

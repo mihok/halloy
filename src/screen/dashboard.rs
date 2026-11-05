@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::ops::RangeInclusive;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{convert, slice};
 
 use chrono::Utc;
@@ -24,6 +24,7 @@ use data::{
     environment, file_transfer, message, preview, server, server_icon, stream,
 };
 use hashbrown::{HashMap, HashSet, hash_map};
+use iced::time::Instant;
 use iced::widget::pane_grid::{self, PaneGrid};
 use iced::widget::{center, column, container, row, stack, text};
 use iced::{Length, Size, Task, Vector, clipboard, padding};

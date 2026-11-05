@@ -34,9 +34,9 @@ only client-side work is a transport.
 |---|---|
 | `irc` crate on `wasm32` | **Done.** `irc/src/connection_web.rs` is a browser `WebSocket` transport with the same API as the native `connection.rs` (selected in `irc/src/lib.rs` with `#[cfg(target_arch = "wasm32")]`). Proxies/DCC/custom certs return `Error::Unsupported`. Native build and tests unchanged. |
 | End-to-end check | **Done.** `web/smoke/` (`smoke`): Halloy's `irc::Connection` + `irc::Codec` compiled to wasm, run in headless Chromium, through the real `IrcGate` to Ergo 2.19.1. Logged in as the bound account with no credentials, nick forced, `+Z` secure, real IP forwarded. |
-| iced / wgpu / winit on wasm | Compile (seen during `cargo check -p data --target wasm32-unknown-unknown`). Rendering not yet tried. |
+| iced / wgpu / winit on wasm | **Working.** Renders through wgpu on WebGL2 (verified with software WebGL in headless Chromium). |
 | `data` crate on wasm | **Compiles, clippy-clean.** Native workspace (app included) builds, clippy-clean, 174 data tests pass. The browser shims are checked at runtime in headless Chromium by `web/smoke` (`platform_check`: in-memory fs, timers, tasks: 11/11 pass). See "data crate: how it's ported" below. |
-| `halloy` app crate on wasm | **Next.** |
+| `halloy` app crate on wasm | **Boots and chats.** Built with `cargo build --release --target wasm32-unknown-unknown -p halloy` + `wasm-bindgen`; `web/app/index.html` hosts it. Verified end to end in headless Chromium through the slashcheer login gate to Ergo 2.19.1: connects as the gate's account with no credentials, auto-joins a channel, shows another user's messages and nick list, and a message typed in Halloy reaches the other user. No page errors. Desktop build, clippy and tests unchanged. |
 | Build + deploy to `/client/` | Not started. slashcheer-irc serves `web/dist/client/` when `web_client_enabled = true`; plan: this repo's CI publishes the wasm bundle as a release asset and slashcheer-irc's deploy pulls a pinned version into that directory. |
 
 ## data crate: how it's ported
@@ -67,18 +67,60 @@ Other changes:
   `web-colors`. `web-time` is a normal dependency (it *is* `std::time` on
   desktop).
 
-Known runtime gaps to handle when the app boots:
+Fixed while booting the app (all browser-only):
 
-- `std::fs` still appears in ~11 files (config, dashboard, logs, legacy
-  history). It compiles in the browser but fails at runtime; route these
-  through `platform::fs` (sync variants) as they come up.
-- `SystemTime::now()` panics in the browser; chrono's clock is fine
-  (wasmbind). Audit when the app runs.
-- `keyring` has no browser backend; the web build has no passwords to
-  store, so it should never be reached.
-- History storage uses rusqlite (`sqlite-wasm-rs` in the browser) on the
-  virtual paths. Needs a real persistence decision (OPFS VFS vs. server
-  CHATHISTORY only).
+- `platform::fs::sync`: `std::fs`-shaped access to the same in-memory
+  filesystem (`std::fs` itself on desktop); call sites that used `std::fs`
+  or `Path::try_exists()` for config, drafts, dashboard and file hosts use
+  it.
+- `environment::{config,data,cache}_dir()` are `/halloy/{config,data,cache}`
+  in the virtual filesystem (dirs-next has no answer in a browser).
+- `data::time::Posix` uses `web_time::SystemTime` (std's panics).
+- The history worker and search worker run as async tasks polling their
+  channel instead of threads; legacy (pre-SQLite) imports never happen;
+  the history database is in-memory for the session.
+
+## App crate: how it's ported
+
+- `src/web.rs`: the browser entry point. Installs a console panic hook and
+  logging, seeds `config.toml` in the virtual filesystem pointing at the
+  page's own host (`wss://<host>/webirc`), then calls the same `run()` the
+  desktop `main()` uses. The page can set `<meta name="halloy-network">`,
+  `halloy-websocket-path` and `halloy-channels` (auto-join).
+- Browser twins selected with `#[cfg_attr(target_arch = "wasm32", path = ...)]`
+  so upstream files stay untouched: `audio_web.rs` (`<audio>` + Blob URL),
+  `notification/toast_web.rs` (Web Notifications), `system/network_web.rs`
+  (online/offline events).
+- `web/rfd-web`: a stand-in for the `rfd` file-dialog crate, added as
+  `extern crate rfd_web as rfd` on wasm so `rfd::AsyncFileDialog` call
+  sites compile unchanged. Picking files opens the browser picker and copies
+  the files into the virtual filesystem; saving returns `None` for now.
+- Theme follows `prefers-color-scheme` (matchMedia) instead of mundy;
+  `open_url` opens http(s) links in a new tab; deep-link IPC, `/exec`,
+  uptime and iced's system-information request are unavailable.
+- Subscription recipes use iced's target-aware `BoxStream`/`boxed_stream`;
+  `std::time::Instant` → `iced::time::Instant`; `tokio::time`/`fs`/`spawn`
+  go through `data::platform`; the logs pane gets records without a thread
+  and file logging becomes console logging.
+- Desktop `main()` is split: its setup stays, and the font/settings/daemon
+  launch moved into `run()`, shared with the browser.
+
+## Known gaps (next)
+
+- **Persistence.** The virtual filesystem and SQLite history live for the
+  page session only. Next: persist config, drafts and dashboard state to
+  `localStorage`/IndexedDB, and history to SQLite on OPFS
+  (`sqlite-wasm-rs` supports it). Server `CHATHISTORY` already backfills
+  channels on load.
+- **Bundle size.** ~36 MB wasm unoptimized (fonts, sounds, emoji). Next:
+  `wasm-opt -Oz`, drop unused fonts/sounds for web, brotli on the CDN.
+- **Downloads.** `save_file` (save image, save theme, DCC) returns `None`;
+  map it to browser downloads.
+- **History search.** The search worker opens its own read-only connection
+  to the on-disk database, which doesn't exist in the browser; search
+  returns an error until history is persisted.
+- **Clipboard, IME, touch.** Not yet exercised beyond basic typing.
+- **WebGPU.** Only WebGL2 was exercised (headless Chromium has no WebGPU).
 
 ## Blocker inventory (`data` + app)
 
@@ -99,10 +141,7 @@ Counts are files that use each API (data/src + src).
 ## Plan
 
 1. ~~**`data` compiles on wasm.**~~ Done (see above).
-2. **App boots in the browser.** `halloy` crate builds for wasm with iced's
-   web backend (`iced` `webgl`/`wgpu` features), using a hard-coded server
-   config pointing at `wss://<same host>/webirc`. Build with `wasm-bindgen`
-   (or `trunk`) into a static bundle.
+2. ~~**App boots in the browser.**~~ Done (see above).
 3. **Persistence.** Settings and themes in `localStorage`, buffers/history
    via sqlite-wasm (OPFS) or IndexedDB, plus server `CHATHISTORY`.
 4. **Integration polish.** `/api/client-config` from the Worker (network
@@ -119,6 +158,23 @@ Desktop Halloy already speaks IRC-over-WebSocket (`use_websocket`). A small
 fork change, a config option for extra websocket request headers (e.g.
 `cf-access-token` from `cloudflared access token`), would let desktop users
 connect straight to `wss://<host>/webirc` without `scripts/irc-bridge.sh`.
+
+## Building and running the web app
+
+```bash
+cargo build --release --target wasm32-unknown-unknown -p halloy
+wasm-bindgen --target web --out-dir web/app/pkg \
+    target/wasm32-unknown-unknown/release/halloy.wasm
+# serve web/app/ from the same origin as /webirc. For a local run against
+# Ergo through the login gate, slashcheer-irc's worker/test/smoke-gateway.ts
+# serves a static directory and relays /webirc:
+cd path/to/slashcheer-irc/worker && \
+    ERGO_JWT_KEY=... GATE_ACCOUNT=alice npm run smoke-gateway -- path/to/halloy/web/app
+# open http://127.0.0.1:18097/
+```
+
+`web/app/index.html` is the host page: it mounts the app into `#iced` and
+carries the `halloy-*` meta tags.
 
 ## Running the smoke test
 

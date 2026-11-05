@@ -212,7 +212,7 @@ impl ConfigEditor {
                 (
                     Task::perform(
                         async move {
-                            tokio::fs::write(Config::path(), contents)
+                            data::platform::fs::write(Config::path(), contents)
                                 .await
                                 .map_err(|error| error.to_string())
                         },
@@ -248,7 +248,7 @@ impl ConfigEditor {
 }
 
 fn read_config() -> (String, Option<Error>) {
-    match std::fs::read_to_string(Config::path()) {
+    match data::platform::fs::sync::read_to_string(Config::path()) {
         Ok(text) => (text, None),
         Err(error) => (String::new(), Some(Error::message(error.to_string()))),
     }

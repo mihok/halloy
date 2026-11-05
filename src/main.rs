@@ -2,6 +2,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod appearance;
+// Web port: browser stand-in for the rfd file-dialog crate (web/rfd-web).
+#[cfg(target_arch = "wasm32")]
+extern crate rfd_web as rfd;
+
+#[cfg_attr(target_arch = "wasm32", path = "audio_web.rs")]
 mod audio;
 mod buffer;
 mod emoji;
@@ -20,13 +25,17 @@ mod stream;
 mod system;
 mod unix_signal;
 mod url;
+#[cfg(target_arch = "wasm32")]
+mod web;
 mod widget;
 mod window;
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::env;
+use std::mem;
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
-use std::{env, mem};
+use std::time::Duration;
 
 use appearance::{Theme, theme};
 use data::buffer::{
@@ -34,6 +43,8 @@ use data::buffer::{
 };
 use data::client::{self, ClientsContext};
 use data::config::{self, Config, Runtime, runtime};
+#[cfg(not(target_arch = "wasm32"))]
+use data::environment;
 use data::history::filter::FilterChain;
 use data::history::{self, storage};
 use data::message::source::Status;
@@ -42,8 +53,9 @@ use data::rate_limit::TokenPriority;
 use data::target::Target;
 use data::user::Nick;
 use data::version::Version;
-use data::{Notification, Server, Url, User, environment, server, version};
+use data::{Notification, Server, Url, User, server, version};
 use hashbrown::HashSet;
+use iced::time::Instant;
 use iced::widget::text::LineHeight;
 use iced::widget::{column, container};
 use iced::{Length, Subscription, Task, padding};
@@ -56,6 +68,13 @@ use self::notification::Notifications;
 use self::widget::Element;
 use self::window::Window;
 
+#[cfg(target_arch = "wasm32")]
+pub fn main() -> Result<(), Box<dyn std::error::Error>> {
+    web::start();
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = env::args();
     args.next();
@@ -120,6 +139,19 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     // shutdown_background without leaks
     rt.shutdown_background();
 
+    run(config_load, window_load, destination, log_stream)?;
+
+    Ok(())
+}
+
+/// Shared by the desktop and browser entry points: apply the font, build
+/// settings, and run the iced daemon.
+fn run(
+    config_load: Result<Config, config::Error>,
+    window_load: Result<data::Window, data::window::Error>,
+    destination: Option<data::Url>,
+    log_stream: ReceiverStream<Vec<logger::Record>>,
+) -> iced::Result {
     // If the config fails to load, then attempt to load the font alone
     // in order to provide UI as close to configured as possible.
     // Particularly of use while the font cannot be changed while
@@ -166,9 +198,31 @@ pub fn main() -> Result<(), Box<dyn std::error::Error>> {
     .subscription(Halloy::subscription)
     .settings(settings)
     .run()
-    .inspect_err(|err| log::error!("{err}"))?;
+    .inspect_err(|err| log::error!("{err}"))
+}
 
-    Ok(())
+/// System information for the about dialog and `/sysinfo`. In the browser
+/// iced would gather it on a thread, which isn't available; skip it.
+#[cfg(not(target_arch = "wasm32"))]
+fn system_information() -> Task<iced::system::Information> {
+    iced::system::information()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn system_information() -> Task<iced::system::Information> {
+    Task::none()
+}
+
+/// `iced::time::every`, yielding `iced::time::Instant` on every target
+/// (iced's web timer yields a different Instant type in the browser).
+#[cfg(not(target_arch = "wasm32"))]
+fn every(duration: Duration) -> Subscription<Instant> {
+    iced::time::every(duration)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn every(duration: Duration) -> Subscription<Instant> {
+    iced::time::every(duration).map(|_| Instant::now())
 }
 
 fn settings(
@@ -649,7 +703,7 @@ impl Halloy {
                     log::error!("failed to configure runtime: {error}");
                     Task::none()
                 } else {
-                    iced::system::information().map(Message::SystemInformation)
+                    crate::system_information().map(Message::SystemInformation)
                 }
             }
             Message::SystemInformation(information) => {
@@ -1893,7 +1947,7 @@ impl Halloy {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let tick = iced::time::every(Duration::from_secs(1)).map(Message::Tick);
+        let tick = every(Duration::from_secs(1)).map(Message::Tick);
 
         let streams = Subscription::batch(
             self.servers
@@ -1922,8 +1976,7 @@ impl Halloy {
                 && self.clients.has_any_query_typing()))
         {
             subscriptions.push(
-                iced::time::every(Duration::from_millis(50))
-                    .map(Message::AnimationTick),
+                every(Duration::from_millis(50)).map(Message::AnimationTick),
             );
         }
 

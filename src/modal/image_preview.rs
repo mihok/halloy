@@ -1,6 +1,7 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use data::Image;
+use iced::time::Instant;
 use iced::widget::{button, center, column, container, row, space};
 use iced::{ContentFit, Length};
 

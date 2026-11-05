@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 #[cfg(unix)]
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
@@ -357,7 +358,7 @@ impl Config {
     pub fn config_dir() -> PathBuf {
         let dir = environment::config_dir();
 
-        if !dir.exists() {
+        if !crate::platform::fs::sync::exists(&dir).unwrap_or(false) {
             create_owned_dir(dir.as_path())
                 .expect("expected permissions to create config folder");
         }
@@ -368,7 +369,7 @@ impl Config {
     pub fn sounds_dir() -> PathBuf {
         let dir = Self::config_dir().join("sounds");
 
-        if !dir.exists() {
+        if !crate::platform::fs::sync::exists(&dir).unwrap_or(false) {
             create_owned_dir(dir.as_path())
                 .expect("expected permissions to create sounds folder");
         }
@@ -379,7 +380,7 @@ impl Config {
     pub fn themes_dir() -> PathBuf {
         let dir = Self::config_dir().join("themes");
 
-        if !dir.exists() {
+        if !crate::platform::fs::sync::exists(&dir).unwrap_or(false) {
             create_owned_dir(dir.as_path())
                 .expect("expected permissions to create themes folder");
         }
@@ -539,8 +540,7 @@ impl Config {
         }
 
         let path = Self::path();
-        if !path
-            .try_exists()
+        if !crate::platform::fs::sync::exists(&path)
             .map_err(|io_error| Error::LoadConfigFile(io_error.to_string()))?
         {
             return Err(Error::ConfigMissing);
@@ -730,7 +730,7 @@ impl Config {
         }
 
         let path = Self::path();
-        let content = std::fs::read_to_string(path).ok()?;
+        let content = crate::platform::fs::sync::read_to_string(path).ok()?;
 
         let Configuration { logs } = toml::from_str(content.as_ref()).ok()?;
 
@@ -745,7 +745,7 @@ impl Config {
         }
 
         let path = Self::path();
-        let content = std::fs::read_to_string(path).ok()?;
+        let content = crate::platform::fs::sync::read_to_string(path).ok()?;
 
         // This will still fail if there is invalid TOML in the file
         // outside the font table.
@@ -757,7 +757,7 @@ impl Config {
     pub fn create_initial_config() {
         // Checks if a config file is there
         let config_file = Self::path();
-        if config_file.exists() {
+        if crate::platform::fs::sync::exists(&config_file).unwrap_or(false) {
             return;
         }
 
@@ -792,7 +792,7 @@ fn create_owned_dir(path: &Path) -> std::io::Result<()> {
 
 #[cfg(not(unix))]
 fn create_owned_dir(path: &Path) -> std::io::Result<()> {
-    std::fs::create_dir_all(path)
+    crate::platform::fs::sync::create_dir_all(path)
 }
 
 #[cfg(unix)]
@@ -806,7 +806,19 @@ fn create_owned_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     file.write_all(contents)
 }
 
-#[cfg(not(unix))]
+/// Browser: the in-memory filesystem has no permissions.
+#[cfg(target_arch = "wasm32")]
+fn create_owned_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    if crate::platform::fs::sync::exists(path)? {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AlreadyExists,
+            path.display().to_string(),
+        ));
+    }
+    crate::platform::fs::sync::write(path, contents)
+}
+
+#[cfg(all(not(unix), not(target_arch = "wasm32")))]
 fn create_owned_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     let mut file = std::fs::OpenOptions::new()
         .write(true)

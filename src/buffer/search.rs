@@ -6,6 +6,7 @@ use data::config::actions::NicknameClickAction;
 use data::dashboard::BufferAction;
 use data::history::filter::FilterChain;
 use data::history::{self, search, storage};
+use data::platform::time;
 use data::target::{self, Target};
 use data::user::Nick;
 use data::{Config, Server, buffer, message, preview};
@@ -14,7 +15,6 @@ use iced::widget::{
     text, text_input,
 };
 use iced::{ContentFit, Length, Task, padding};
-use tokio::time;
 
 use super::{context_menu, message_feed, scroll_view};
 use crate::widget::Element;

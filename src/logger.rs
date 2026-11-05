@@ -1,10 +1,17 @@
-use std::sync::{OnceLock, mpsc};
-use std::time::{Duration, Instant};
-use std::{env, mem, panic, thread};
+use std::sync::OnceLock;
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Duration;
+use std::{env, panic};
+#[cfg(not(target_arch = "wasm32"))]
+use std::{mem, thread};
 
 use chrono::Utc;
 use data::config;
 pub use data::log::{Error, Record};
+#[cfg(not(target_arch = "wasm32"))]
+use iced::time::Instant;
 use log::Log;
 use tokio::sync::mpsc as tokio_mpsc;
 use tokio_stream::wrappers::ReceiverStream;
@@ -24,7 +31,14 @@ pub fn setup(
     let env_rust_log = env_rust_log();
     let pane_level = log::LevelFilter::from(config.pane_level.clone());
 
+    #[cfg(not(target_arch = "wasm32"))]
     let file_sink = file_dispatch(config, env_rust_log);
+    // Browser: no log files; write to the developer console instead.
+    #[cfg(target_arch = "wasm32")]
+    let file_sink = {
+        let _ = config;
+        Some(console_dispatch())
+    };
 
     let (pane_sink, pane_receiver) = pane_dispatch(env_rust_log);
 
@@ -56,6 +70,7 @@ pub fn update_max_level(pane_level: log::LevelFilter) {
     log::set_max_level(file_level.max(pane_level));
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn file_dispatch(
     config: config::Logs,
     env_rust_log: Option<log::Level>,
@@ -144,6 +159,32 @@ fn file_dispatch(
     })
 }
 
+#[cfg(target_arch = "wasm32")]
+fn console_dispatch() -> fern::Dispatch {
+    let level = log::LevelFilter::Info;
+    let _ = FILE_LEVEL.set(level);
+
+    fern::Dispatch::new()
+        .level(level)
+        .level_for("wgpu_core", log::LevelFilter::Warn)
+        .level_for("wgpu_hal", log::LevelFilter::Warn)
+        .level_for("naga", log::LevelFilter::Warn)
+        .chain(fern::Output::call(|record| {
+            let message = format!(
+                "{:>5} {} -- {}",
+                record.level(),
+                record.target(),
+                record.args()
+            )
+            .into();
+            match record.level() {
+                log::Level::Error => web_sys::console::error_1(&message),
+                log::Level::Warn => web_sys::console::warn_1(&message),
+                _ => web_sys::console::log_1(&message),
+            }
+        }))
+}
+
 fn pane_dispatch(
     env_rust_log: Option<log::Level>,
 ) -> (fern::Dispatch, ReceiverStream<Vec<Record>>) {
@@ -174,6 +215,36 @@ fn pane_dispatch(
     )
 }
 
+/// Browser: no threads to batch on; send each record straight to the logs
+/// pane's channel (dropping records if the pane falls far behind).
+#[cfg(target_arch = "wasm32")]
+fn channel_logger() -> (Box<dyn Log>, ReceiverStream<Vec<Record>>) {
+    struct Sink {
+        sender: tokio_mpsc::Sender<Vec<Record>>,
+    }
+
+    impl Log for Sink {
+        fn enabled(&self, _metadata: &::log::Metadata) -> bool {
+            true
+        }
+
+        fn log(&self, record: &::log::Record) {
+            let _ = self.sender.try_send(vec![Record {
+                timestamp: Utc::now(),
+                level: record.level().into(),
+                message: format!("{}", record.args()),
+            }]);
+        }
+
+        fn flush(&self) {}
+    }
+
+    let (sender, receiver) = tokio_mpsc::channel(1024);
+
+    (Box::new(Sink { sender }), ReceiverStream::new(receiver))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn channel_logger() -> (Box<dyn Log>, ReceiverStream<Vec<Record>>) {
     struct Sink {
         sender: mpsc::Sender<Record>,

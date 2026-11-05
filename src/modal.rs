@@ -1,8 +1,8 @@
 use std::path::PathBuf;
-use std::time::Instant;
 
 use data::{Image, Server, config};
 use iced::Task;
+use iced::time::Instant;
 
 use crate::widget::Element;
 use crate::{Theme, image_animation, open_url, window};
@@ -184,7 +184,7 @@ impl Modal {
                                 .await
                             {
                                 let destination = handle.path();
-                                tokio::fs::copy(&source, destination)
+                                data::platform::fs::copy(&source, destination)
                                     .await
                                     .ok()
                                     .map(|_| destination.to_path_buf())

@@ -1,13 +1,28 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::process::Stdio;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
+#[cfg(not(target_arch = "wasm32"))]
+use data::platform::time;
+#[cfg(not(target_arch = "wasm32"))]
 use tokio::process::Command;
-use tokio::time;
 
 // https://learn.microsoft.com/en-us/windows/win32/procthread/process-creation-flags
 #[cfg(target_os = "windows")]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
+/// Browser: there's no shell to run commands in.
+#[cfg(target_arch = "wasm32")]
+pub async fn run(
+    _command: String,
+    _timeout_secs: u64,
+    _max_output_bytes: usize,
+) -> Result<String, String> {
+    Err("exec isn't supported in the browser".to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub async fn run(
     command: String,
     timeout_secs: u64,
@@ -54,6 +69,7 @@ pub async fn run(
     first_non_empty_line(&output.stdout)
 }
 
+#[cfg(any(not(target_arch = "wasm32"), test))]
 fn first_non_empty_line(output: &[u8]) -> Result<String, String> {
     String::from_utf8_lossy(output)
         .lines()

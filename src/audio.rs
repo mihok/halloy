@@ -5,7 +5,9 @@ use std::thread;
 use data::audio::Sound;
 use rodio::{Decoder, DeviceSinkBuilder, Player};
 
-pub fn play(sound: Sound) -> thread::JoinHandle<()> {
+pub type Handle = thread::JoinHandle<()>;
+
+pub fn play(sound: Sound) -> Handle {
     thread::spawn(move || {
         if let Err(e) = _play(sound) {
             log::error!("Failed to play sound: {e}");
