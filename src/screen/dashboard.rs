@@ -892,6 +892,25 @@ impl Dashboard {
             Message::Shortcut(shortcut, repeat) => {
                 use shortcut::Command::*;
 
+                // Browser build: these open things a tab doesn't have
+                // (debug logs, DCC, the managed config, theme editing) or
+                // would quit the app.
+                if crate::platform_specific::IS_WEB
+                    && matches!(
+                        shortcut,
+                        ReloadConfiguration
+                            | FileTransfers
+                            | Logs
+                            | ThemeEditor
+                            | QuitApplication
+                            | ConfigEditorSave
+                            | OpenConfigEditor
+                            | OpenConfigFile
+                    )
+                {
+                    return (Task::none(), None);
+                }
+
                 // Only works on main window / pane_grid
                 let mut move_focus = |direction: pane_grid::Direction| {
                     let Focus { window, pane } = self.panes.focus;
@@ -3314,6 +3333,16 @@ impl Dashboard {
     ) -> Task<Message> {
         self.pending_navigation = None;
 
+        // No OS windows in the browser: "new window" opens a pane instead
+        // (covers configured click actions and restored popouts too).
+        let buffer_action = if !crate::platform_specific::SUPPORTS_WINDOWS
+            && matches!(buffer_action, BufferAction::NewWindow)
+        {
+            BufferAction::NewPane
+        } else {
+            buffer_action
+        };
+
         if let data::Buffer::Internal(buffer::Internal::Search(Some(query))) =
             &buffer
         {
@@ -4041,6 +4070,10 @@ impl Dashboard {
         storage: &mut storage::Manager,
         config: &Config,
     ) -> Task<Message> {
+        if !crate::platform_specific::SUPPORTS_WINDOWS {
+            return Task::none();
+        }
+
         let Focus { pane, .. } = self.panes.focus;
 
         self.panes.focus_history.retain(|p| *p != pane);

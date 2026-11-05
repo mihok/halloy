@@ -240,13 +240,44 @@ impl Command {
         let application =
             Application::list().into_iter().map(Command::Application);
 
-        version
+        let commands = version
             .chain(application)
             .chain(buffers)
             .chain(servers)
             .chain(configs)
-            .chain(themes)
-            .collect()
+            .chain(themes);
+
+        if crate::platform_specific::IS_WEB {
+            commands.filter(Command::available_on_web).collect()
+        } else {
+            commands.collect()
+        }
+    }
+}
+
+impl Command {
+    /// Browser build: drop commands for features a tab doesn't have (OS
+    /// windows, quitting, files on disk, the managed config, theme editing,
+    /// update checks, DCC, debug logs).
+    fn available_on_web(&self) -> bool {
+        match self {
+            Command::Version(_) | Command::Configuration(_) => false,
+            Command::Application(application) => {
+                !matches!(application, Application::Quit)
+            }
+            Command::Buffer(buffer) => match buffer {
+                Buffer::Popout | Buffer::Merge => false,
+                Buffer::Replace(data::Buffer::Internal(internal)) => !matches!(
+                    internal,
+                    buffer::Internal::FileTransfers
+                        | buffer::Internal::Logs
+                        | buffer::Internal::ConfigEditor
+                ),
+                _ => true,
+            },
+            Command::Theme(theme) => matches!(theme, Theme::Switch(_)),
+            Command::Server(_) => true,
+        }
     }
 }
 

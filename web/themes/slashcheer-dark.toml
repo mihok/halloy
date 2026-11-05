@@ -1,0 +1,76 @@
+# slashcheer (dark): the avatar's indigo window with cream text and
+# coral / lime accents. Shipped with the web build (src/web.rs).
+
+[general]
+background = "#1c024f"
+horizontal_rule = "#2e1468"
+horizontal_rule_text = "#9d90c2"
+scrollbar = "#3a1d7a"
+unread_indicator = "#e3fc62"
+highlight_indicator = "#fe7868"
+border = "#3a1d7a"
+
+[text]
+primary = "#fcfacf"
+secondary = "#a99fc4"
+tertiary = "#fe7868"
+success = "#e3fc62"
+error = "#ff6b85"
+warning = "#ffb36b"
+info = "#9fd8ff"
+debug = "#b9a7f0"
+trace = "#d8d4e6"
+
+[buffer]
+background = "#160240"
+background_text_input = "#11012d"
+background_title_bar = "#11012d"
+timestamp = "#8578ab"
+action = "#e3fc62"
+topic = "#a99fc4"
+highlight = "#4a1a4f"
+code = "#e3fc62"
+nickname = "#fe7868"
+nickname_offline = "#6f6592"
+url = "#9fd8ff"
+selection = "#3d1f7d"
+border_selected = "#fe7868"
+focus_border = "#e3fc62"
+focus_background = "#11012d"
+backlog_rule = "#fe7868"
+backlog_rule_text = "#fe7868"
+date_rule = "#2e1468"
+date_rule_text = "#9d90c2"
+
+[buffer.server_messages]
+default = "#9d90c2"
+
+[buttons.primary]
+background = "#1c024f"
+background_hover = "#2a0c66"
+background_selected = "#341580"
+background_selected_hover = "#3f1d92"
+
+[buttons.secondary]
+background = "#2a0c66"
+background_hover = "#341580"
+background_selected = "#4b2399"
+background_selected_hover = "#5a2db0"
+
+[formatting]
+white = "#fcfacf"
+black = "#11012d"
+blue = "#7aa2ff"
+green = "#a6d96a"
+red = "#ff6b85"
+brown = "#c08a5b"
+magenta = "#e07ff0"
+orange = "#fe7868"
+yellow = "#f5e663"
+lightgreen = "#e3fc62"
+cyan = "#5fd7d7"
+lightcyan = "#9ff0ee"
+lightblue = "#9fd8ff"
+pink = "#ffa6c9"
+grey = "#8578ab"
+lightgrey = "#c9c3d9"

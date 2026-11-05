@@ -3,22 +3,29 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Halloy</title>
+<meta name="color-scheme" content="light dark">
+<title>IRC</title>
 <!-- Set by the hosting site; see web/PORTING.md. -->
 <meta name="halloy-network" content="irc">
 <meta name="halloy-websocket-path" content="/web/irc">
 <!-- optional: <meta name="halloy-channels" content="#general, #random"> -->
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1e1e; }
+  /* Matches the slashcheer themes Halloy loads (web/themes/), so there's no
+     flash between this page and the app. */
+  :root { --bg: #fcfacf; --fg: #5d5280; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #160240; --fg: #a99fc4; } }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
   #iced { width: 100%; height: 100%; }
-  #loading { position: fixed; inset: 0; display: grid; place-items: center; color: #9a9a9a; font: 14px system-ui, sans-serif; }
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; color: var(--fg); font: 14px system-ui, sans-serif; }
 </style>
 </head>
 <body>
-<div id="loading">Loading Halloy…</div>
+<div id="loading">Connecting…</div>
 <div id="iced"></div>
 <script type="module">
   import init from "./pkg/halloy.js";
+  const network = document.querySelector('meta[name="halloy-network"]')?.content;
+  if (network) document.title = `${network} IRC`;
   await init();
   document.getElementById("loading")?.remove();
 </script>

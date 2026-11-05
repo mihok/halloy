@@ -1246,6 +1246,13 @@ impl Menu {
         internal_buffers_in_sidebar: &[InternalBuffer],
         show_muted_buffers: bool,
     ) -> Vec<Self> {
+        if crate::platform_specific::IS_WEB {
+            return Self::web_list(
+                internal_buffers_in_sidebar,
+                show_muted_buffers,
+            );
+        }
+
         let mut list = vec![Self::Version];
 
         if has_new_version {
@@ -1295,6 +1302,33 @@ impl Menu {
             Self::ThemeEditor,
             Self::ShowMutedBuffers(!show_muted_buffers),
             Self::QuitApplication,
+        ]);
+
+        list
+    }
+
+    /// Browser build: only what works in a tab. No about/update, docs,
+    /// logs, file transfers, config or theme editing, or quit.
+    fn web_list(
+        internal_buffers_in_sidebar: &[InternalBuffer],
+        show_muted_buffers: bool,
+    ) -> Vec<Self> {
+        let mut list = vec![Self::CommandBar];
+
+        for (buffer, entry) in [
+            (InternalBuffer::Search, Self::Search),
+            (InternalBuffer::ChannelDiscovery, Self::ChannelDiscovery),
+            (InternalBuffer::ChannelMonitor, Self::ChannelMonitor),
+            (InternalBuffer::Highlights, Self::Highlights),
+        ] {
+            if !internal_buffers_in_sidebar.contains(&buffer) {
+                list.push(entry);
+            }
+        }
+
+        list.extend([
+            Self::HorizontalRule,
+            Self::ShowMutedBuffers(!show_muted_buffers),
         ]);
 
         list
@@ -1366,7 +1400,11 @@ impl Entry {
 
         match open_as_window_pane {
             None => {
-                entries.extend([NewPane, Popout, Replace]);
+                entries.push(NewPane);
+                if crate::platform_specific::SUPPORTS_WINDOWS {
+                    entries.push(Popout);
+                }
+                entries.push(Replace);
             }
             Some((window, pane)) => {
                 if num_panes > 1 {
@@ -1793,8 +1831,13 @@ fn upstream_buffer_button<'a>(
                         BufferAction::ReplacePane => {
                             Message::Replace(buffer.clone().into())
                         }
-                        BufferAction::NewWindow => {
+                        BufferAction::NewWindow
+                            if crate::platform_specific::SUPPORTS_WINDOWS =>
+                        {
                             Message::Popout(buffer.clone().into())
+                        }
+                        BufferAction::NewWindow => {
+                            Message::New(buffer.clone().into())
                         }
                     }
                 }
@@ -2234,8 +2277,13 @@ fn internal_buffer_button<'a>(
                             BufferAction::ReplacePane => {
                                 Message::Replace(buffer.clone().into())
                             }
-                            BufferAction::NewWindow => {
+                            BufferAction::NewWindow
+                                if crate::platform_specific::SUPPORTS_WINDOWS =>
+                            {
                                 Message::Popout(buffer.clone().into())
+                            }
+                            BufferAction::NewWindow => {
+                                Message::New(buffer.clone().into())
                             }
                         }
                     }

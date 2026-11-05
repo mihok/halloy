@@ -1,0 +1,76 @@
+# slashcheer (light): the avatar's cream with indigo text and coral accents.
+# Shipped with the web build (src/web.rs).
+
+[general]
+background = "#f4f0c0"
+horizontal_rule = "#e2dca8"
+horizontal_rule_text = "#6b5f93"
+scrollbar = "#d6cf98"
+unread_indicator = "#5a2db0"
+highlight_indicator = "#e8553f"
+border = "#d6cf98"
+
+[text]
+primary = "#1c024f"
+secondary = "#5d5280"
+tertiary = "#c43d28"
+success = "#3f6b00"
+error = "#b8213a"
+warning = "#995400"
+info = "#1f5fa8"
+debug = "#6b4fbf"
+trace = "#4a4566"
+
+[buffer]
+background = "#fcfacf"
+background_text_input = "#f4f0c0"
+background_title_bar = "#f4f0c0"
+timestamp = "#7a7099"
+action = "#3f6b00"
+topic = "#5d5280"
+highlight = "#ffdcd1"
+code = "#8a2b6b"
+nickname = "#c43d28"
+nickname_offline = "#9a93b3"
+url = "#1f5fa8"
+selection = "#e3dbff"
+border_selected = "#fe7868"
+focus_border = "#1c024f"
+focus_background = "#f4f0c0"
+backlog_rule = "#e8553f"
+backlog_rule_text = "#c43d28"
+date_rule = "#e2dca8"
+date_rule_text = "#6b5f93"
+
+[buffer.server_messages]
+default = "#6b5f93"
+
+[buttons.primary]
+background = "#f4f0c0"
+background_hover = "#ebe6b2"
+background_selected = "#e2dca2"
+background_selected_hover = "#d9d293"
+
+[buttons.secondary]
+background = "#ebe6b2"
+background_hover = "#e2dca2"
+background_selected = "#d9d293"
+background_selected_hover = "#cfc784"
+
+[formatting]
+white = "#ffffff"
+black = "#1c024f"
+blue = "#2450c8"
+green = "#3f7a1a"
+red = "#b8213a"
+brown = "#7a4a1e"
+magenta = "#9b2fae"
+orange = "#c4560f"
+yellow = "#8a7400"
+lightgreen = "#4f8a00"
+cyan = "#0b7f86"
+lightcyan = "#127a8a"
+lightblue = "#1f5fa8"
+pink = "#c2306a"
+grey = "#6b5f93"
+lightgrey = "#8a80a8"

@@ -84,10 +84,20 @@ Fixed while booting the app (all browser-only):
 ## App crate: how it's ported
 
 - `src/web.rs`: the browser entry point. Installs a console panic hook and
-  logging, seeds `config.toml` in the virtual filesystem pointing at the
-  page's own host (`wss://<host>/web/irc`), then calls the same `run()` the
-  desktop `main()` uses. The page can set `<meta name="halloy-network">`,
-  `halloy-websocket-path` and `halloy-channels` (auto-join).
+  logging, writes a managed `config.toml` in the virtual filesystem on every
+  load (pointing at the page's own host, `wss://<host>/web/irc`), then calls
+  the same `run()` the desktop `main()` uses. The page can set
+  `<meta name="halloy-network">`, `halloy-websocket-path` and
+  `halloy-channels` (auto-join). The config also selects the slashcheer
+  themes (`web/themes/`, written next to it) for light and dark, turns off
+  the update check, DCC and link previews (CORS), and enables browser
+  notifications for direct messages and highlights.
+- Desktop-only features are hidden behind `platform_specific::IS_WEB` /
+  `SUPPORTS_WINDOWS`: popping panes out into windows ("new window" actions
+  open a pane instead), and in the sidebar menu, command bar and shortcuts:
+  about/update, documentation, logs, file transfers, config editor and
+  reload, theme editor, and quit. The menu keeps the command bar, search,
+  channel discovery/monitor, highlights and muted buffers.
 - Browser twins selected with `#[cfg_attr(target_arch = "wasm32", path = ...)]`
   so upstream files stay untouched: `audio_web.rs` (`<audio>` + Blob URL),
   `notification/toast_web.rs` (Web Notifications), `system/network_web.rs`

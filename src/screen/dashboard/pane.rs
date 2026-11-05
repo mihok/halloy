@@ -750,7 +750,7 @@ impl TitleBar {
                     theme,
                 );
                 Some(merge_button_with_tooltip)
-            } else if panes > 1 {
+            } else if panes > 1 && crate::platform_specific::SUPPORTS_WINDOWS {
                 let popout_button = button(center(icon::popout()))
                     .padding(5)
                     .width(22)

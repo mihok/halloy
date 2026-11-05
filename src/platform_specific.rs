@@ -1,6 +1,14 @@
 use data::Config;
 use data::config::{platform_specific, sidebar};
 
+/// Browser build (web port). A tab can't open OS windows, quit itself, or
+/// reach a desktop filesystem, so those features are hidden; the config is
+/// managed by the host page (see src/web.rs).
+pub const IS_WEB: bool = cfg!(target_arch = "wasm32");
+
+/// Panes can pop out into their own OS window (desktop only).
+pub const SUPPORTS_WINDOWS: bool = !IS_WEB;
+
 /// Returns the content padding based on platform and configuration..
 pub fn content_padding(config: &Config) -> u32 {
     // On macOS the content is either embedded into titlebar or padded below it.
