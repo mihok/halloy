@@ -24,7 +24,8 @@ jobs:
         run: cargo clippy --target wasm32-unknown-unknown -p irc -p data -p rfd-web -p halloy -- -D warnings
       - name: data crate native tests
         run: |
-          sudo apt-get update && sudo apt-get install -y libasound2-dev
+          # Native builds of iced/winit link X11, Wayland and ALSA.
+          sudo apt-get update && sudo apt-get install -y libasound2-dev libxcb1-dev libxkbcommon-dev libwayland-dev
           cargo test -p data
       - name: irc crate native tests
         run: cargo test -p irc -p irc_proto
