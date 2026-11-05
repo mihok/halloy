@@ -57,6 +57,7 @@ pub enum Message {
     MarkServerAsRead(Server),
     OpenChannelDiscovery(Server),
     QuitApplication,
+    SignOut,
     Connect(Server),
     DisableAutoconnect(Server),
     Remove(Server),
@@ -438,6 +439,10 @@ impl Sidebar {
             Message::QuitApplication => {
                 (Task::none(), Some(Event::QuitApplication))
             }
+            Message::SignOut => {
+                crate::platform_specific::sign_out();
+                (Task::none(), None)
+            }
             Message::New(source) => (Task::none(), Some(Event::New(source))),
             Message::Popout(source) => {
                 (Task::none(), Some(Event::Popout(source)))
@@ -637,6 +642,12 @@ impl Sidebar {
                         };
 
                     match menu {
+                        Menu::SignOut => context_button(
+                            text("Sign out"),
+                            None,
+                            icon::quit(),
+                            Message::SignOut,
+                        ),
                         Menu::QuitApplication => context_button(
                             text("Quit Halloy"),
                             Some(&keyboard.quit_application),
@@ -1236,6 +1247,7 @@ enum Menu {
     HorizontalRule,
     Documentation,
     QuitApplication,
+    SignOut,
     ShowMutedBuffers(bool),
 }
 
@@ -1330,6 +1342,10 @@ impl Menu {
             Self::HorizontalRule,
             Self::ShowMutedBuffers(!show_muted_buffers),
         ]);
+
+        if crate::platform_specific::logout_url().is_some() {
+            list.extend([Self::HorizontalRule, Self::SignOut]);
+        }
 
         list
     }

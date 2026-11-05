@@ -163,7 +163,7 @@ show_content = true
 "#;
 
 /// Read `<meta name="..." content="...">` from the page.
-fn meta(name: &str) -> Option<String> {
+pub(crate) fn meta(name: &str) -> Option<String> {
     let document = web_sys::window()?.document()?;
     let element = document
         .query_selector(&format!("meta[name=\"{name}\"]"))
