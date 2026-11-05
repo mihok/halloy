@@ -1,61 +1,62 @@
-# slashcheer (light): the avatar's cream with indigo text and coral accents.
+# slashcheer (light): neutral warm off-white (as on the website), the avatar's
+# indigo (#1c024f) for text and accents, coral kept for mentions and the backlog line.
 # Shipped with the web build (src/web.rs).
 
 [general]
-background = "#f4f0c0"
-horizontal_rule = "#e2dca8"
-horizontal_rule_text = "#6b5f93"
-scrollbar = "#d6cf98"
-unread_indicator = "#5a2db0"
+background = "#f3f1ec"
+horizontal_rule = "#e6e1d8"
+horizontal_rule_text = "#716c7d"
+scrollbar = "#d8d2c6"
+unread_indicator = "#1c024f"
 highlight_indicator = "#e8553f"
-border = "#d6cf98"
+border = "#e0dbd1"
 
 [text]
 primary = "#1c024f"
-secondary = "#5d5280"
-tertiary = "#c43d28"
+secondary = "#5e5a6e"
+tertiary = "#1c024f"
 success = "#3f6b00"
 error = "#b8213a"
 warning = "#995400"
 info = "#1f5fa8"
-debug = "#6b4fbf"
-trace = "#4a4566"
+debug = "#5e5a6e"
+trace = "#716c7d"
 
 [buffer]
-background = "#fcfacf"
-background_text_input = "#f4f0c0"
-background_title_bar = "#f4f0c0"
-timestamp = "#7a7099"
-action = "#3f6b00"
-topic = "#5d5280"
-highlight = "#ffdcd1"
+background = "#fbfaf7"
+background_text_input = "#f3f1ec"
+background_title_bar = "#f3f1ec"
+timestamp = "#716c7d"
+action = "#1c024f"
+topic = "#5e5a6e"
+highlight = "#ffe3db"
 code = "#8a2b6b"
-nickname = "#c43d28"
-nickname_offline = "#9a93b3"
+nickname = "#1c024f"
+nickname_offline = "#8f8b9c"
 url = "#1f5fa8"
-selection = "#e3dbff"
-border_selected = "#fe7868"
+selection = "#eae2f8"
+border_selected = "#1c024f"
 focus_border = "#1c024f"
-focus_background = "#f4f0c0"
+focus_background = "#f3f1ec"
 backlog_rule = "#e8553f"
 backlog_rule_text = "#c43d28"
-date_rule = "#e2dca8"
-date_rule_text = "#6b5f93"
+date_rule = "#e6e1d8"
+date_rule_text = "#716c7d"
 
 [buffer.server_messages]
-default = "#6b5f93"
+default = "#6f6a7c"
 
 [buttons.primary]
-background = "#f4f0c0"
-background_hover = "#ebe6b2"
-background_selected = "#e2dca2"
-background_selected_hover = "#d9d293"
+background = "#f3f1ec"
+background_hover = "#ebe8e1"
+background_selected = "#dcdcdc"
+background_selected_hover = "#d1d1d1"
 
 [buttons.secondary]
-background = "#ebe6b2"
-background_hover = "#e2dca2"
-background_selected = "#d9d293"
-background_selected_hover = "#cfc784"
+background = "#ebe8e1"
+background_hover = "#e2ded5"
+background_selected = "#eae2f8"
+background_selected_hover = "#ded2f4"
 
 [formatting]
 white = "#ffffff"
