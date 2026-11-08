@@ -152,6 +152,19 @@ enabled = false
 [preview]
 enabled = false
 
+# Halloy fades join/part/quit/nick/away lines with an alpha scaled to the
+# background's lightness: about 22% on the dark theme and 60% on the light one,
+# which makes them unreadable in both. The themes' server-message color
+# already marks them as secondary, so keep them solid.
+[buffer.server_messages.default]
+dimmed = false
+
+# Same for nicknames: offline ones use the theme's offline color as is, and
+# away ones keep a fixed 70% so they still read as away without vanishing.
+[buffer.nickname]
+offline = "solid"
+away = { dimmed = 0.7 }
+
 # Browser notifications (permission is asked on first load).
 [notifications.direct_message]
 show_toast = true

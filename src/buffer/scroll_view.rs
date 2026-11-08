@@ -321,10 +321,25 @@ pub fn view<'a>(
             ),
         };
 
+        // "No older messages" and "..." are status, not disabled actions:
+        // draw them in the secondary text color instead of the disabled
+        // button's 20% alpha, which is unreadable.
+        let is_status = message.is_none();
         let top_row_button = button(text(content).size(divider_font_size))
             .padding([3, 5])
-            .style(|theme, status| {
-                theme::button::secondary(theme, status, false)
+            .style(move |theme: &Theme, status| {
+                if is_status {
+                    iced::widget::button::Style {
+                        text_color: theme.styles().text.secondary.color,
+                        ..theme::button::secondary(
+                            theme,
+                            iced::widget::button::Status::Active,
+                            false,
+                        )
+                    }
+                } else {
+                    theme::button::secondary(theme, status, false)
+                }
             })
             .on_press_maybe(message);
 
