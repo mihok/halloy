@@ -164,7 +164,7 @@ Counts are files that use each API (data/src + src).
 | Secrets | `keyring-core` | Not needed: the web build has no IRC passwords. Compile it out. |
 | Processes | `tokio::process`/`std::process` (3) | Compile out (external commands, opening files). |
 | Desktop integration | `notify-rust`, `rodio`, `rfd`, `open`, `netwatcher`, `display-info`, `interprocess`/`ipc` | Web Notifications API, `<audio>`, `<input type=file>`, `window.open`; drop netwatcher/IPC/display-info. |
-| Fonts | bundled in `fonts/` | Same files, loaded via `iced::font::load` at startup. |
+| Fonts | bundled in `fonts/` | Same files, loaded via `iced::font::load` at startup, plus `fonts/slashcheer-kaomoji.ttf` (web only; rebuilt by `web/kaomoji-font/build.sh`) so kaomoji glyphs Iosevka lacks don't render as boxes. |
 | DCC file transfer | TCP listeners | Unsupported in browsers; hide the UI. |
 
 ## Plan

@@ -158,6 +158,13 @@ pub fn load() -> Vec<Cow<'static, [u8]>> {
         include_bytes!("../fonts/halloy-icons.ttf")
             .as_slice()
             .into(),
+        // Browsers give iced no system fonts to fall back on, so glyphs Iosevka
+        // lacks (kaomoji: kana, Arabic, Kannada, Canadian syllabics, symbols...)
+        // come from this bundled subset (web/kaomoji-font/).
+        #[cfg(target_arch = "wasm32")]
+        include_bytes!("../fonts/slashcheer-kaomoji.ttf")
+            .as_slice()
+            .into(),
     ]
 }
 
