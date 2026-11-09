@@ -165,6 +165,29 @@ dimmed = false
 offline = "solid"
 away = { dimmed = 0.7 }
 
+# Tab-like layout: the buffer list runs across the top, and opening a
+# channel switches the current pane instead of splitting the screen (right-
+# click > "Open in new pane" still splits).
+[sidebar]
+position = "top"
+
+[actions.sidebar]
+buffer = "replace-pane"
+
+# Same for everything else that opens a buffer (joining, messaging someone,
+# clicking a channel name or a highlight, notifications).
+[actions.buffer]
+click_channel_name = "replace-pane"
+click_highlight = "replace-pane"
+click_channel_discovery = "replace-pane"
+join_channel = "replace-pane"
+open_internal = "replace-pane"
+message_channel = "replace-pane"
+message_user = "replace-pane"
+
+[actions.notification]
+open_buffer = "replace-pane"
+
 # Browser notifications (permission is asked on first load).
 [notifications.direct_message]
 show_toast = true

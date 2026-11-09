@@ -3414,7 +3414,17 @@ impl Dashboard {
                     }
                 }
 
-                let Focus { window, pane } = self.panes.focus;
+                let Focus { mut window, mut pane } = self.panes.focus;
+
+                // Nothing focused yet (e.g. a fresh page): replace the main
+                // window's first pane instead of doing nothing.
+                if self.panes.get_mut(window, pane).is_none()
+                    && let Some(first) =
+                        self.panes.main.iter().next().map(|(p, _)| *p)
+                {
+                    window = self.main_window();
+                    pane = first;
+                }
 
                 if let Some(state) = self.panes.get_mut(window, pane) {
                     if config.buffer.mark_as_read.on_buffer_close.mark_as_read(
