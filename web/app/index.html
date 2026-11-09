@@ -31,8 +31,27 @@
   (() => {
     let pasted = null; // { text, at }
     let waiting = [];
+    // The app's shortcuts are compiled for Ctrl (it can't know at build time
+    // that it'll run on a Mac), so on a Mac, Cmd+A/C/V/X/Y/Z are handed to it
+    // as Ctrl+ the same key. Cmd+V still reaches the browser, for its paste event.
+    const mac = /mac|iphone|ipad|ipod/i.test((navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || navigator.userAgent);
     addEventListener("keydown", (e) => {
-      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "v") e.preventDefault = () => {};
+      const k = e.key.length === 1 ? e.key.toLowerCase() : "";
+      if (mac && e.isTrusted && e.metaKey && !e.ctrlKey && !e.altKey && k && "acvxyz".includes(k)) {
+        e.stopImmediatePropagation();
+        if (k !== "v") e.preventDefault();
+        // The app tracks modifiers from the modifier keys' own events, so press
+        // Ctrl around the key. macOS sends no keyup for a key released while Cmd
+        // is held, so release it here too (and leave Cmd shown as still held).
+        const fire = (type, key, code, flags) =>
+          e.target.dispatchEvent(new KeyboardEvent(type, { key, code, shiftKey: e.shiftKey, bubbles: true, cancelable: true, ...flags }));
+        fire("keydown", "Control", "ControlLeft", { ctrlKey: true, location: 1 });
+        fire("keydown", e.key, e.code, { ctrlKey: true, repeat: e.repeat });
+        fire("keyup", e.key, e.code, { ctrlKey: true });
+        fire("keyup", "Control", "ControlLeft", { metaKey: true, location: 1 });
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && k === "v") e.preventDefault = () => {};
     }, true);
     document.addEventListener("paste", (e) => {
       const text = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
