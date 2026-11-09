@@ -165,6 +165,9 @@ pub fn load() -> Vec<Cow<'static, [u8]>> {
         include_bytes!("../fonts/slashcheer-kaomoji.ttf")
             .as_slice()
             .into(),
+        // ...and emoji, in one color (fonts/noto-emoji-LICENSE.txt).
+        #[cfg(target_arch = "wasm32")]
+        include_bytes!("../fonts/noto-emoji.ttf").as_slice().into(),
     ]
 }
 
