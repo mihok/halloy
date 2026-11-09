@@ -148,7 +148,12 @@ Fixed while booting the app (all browser-only):
   `wasm-opt -Oz` in CI, drop unused fonts/sounds for web.
 - **Downloads.** `save_file` (save image, save theme, DCC) returns `None`;
   map it to browser downloads.
-- **Clipboard, IME, touch.** Not yet exercised beyond basic typing.
+- **IME, touch.** Not yet exercised beyond basic typing.
+- **Clipboard.** Works: iced_winit is vendored (`vendor/iced_winit`, patched in
+  Cargo.toml) with the browser Clipboard API, and `web/app/index.html` hands
+  Ctrl/Cmd+V's paste event to it, so pasting needs no permission prompt.
+  Text only; no primary selection (middle-click paste). Drop the vendored
+  crate once iced supports the web clipboard upstream.
 - **WebGPU.** Only WebGL2 was exercised (headless Chromium has no WebGPU).
 
 ## Blocker inventory (`data` + app)

@@ -3485,18 +3485,19 @@ dependencies = [
 [[package]]
 name = "iced_winit"
 version = "0.15.0-dev"
-source = "git+https://github.com/squidowl/iced?rev=138b1d0ddc86e108f7d4f25765afca126a8dc166#138b1d0ddc86e108f7d4f25765afca126a8dc166"
 dependencies = [
  "arboard",
  "iced_debug",
  "iced_program",
  "iced_runtime",
+ "js-sys",
  "log",
  "objc2 0.5.2",
  "rustc-hash 2.1.2",
  "sysinfo 0.33.1",
  "thiserror 2.0.21",
  "tracing",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
  "winit",

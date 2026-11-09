@@ -22,6 +22,43 @@
 <body>
 <div id="loading">Connecting…</div>
 <div id="iced"></div>
+<script>
+  // Paste without a permission prompt. winit cancels every keydown, so a
+  // Ctrl/Cmd+V would never become a browser paste. Let that one through: the
+  // app still sees the key (and asks for the clipboard), and the browser's paste
+  // event hands over the text. icedClipboardRead() (used by iced's web clipboard,
+  // vendor/iced_winit) returns it, or falls back to navigator.clipboard.readText().
+  (() => {
+    let pasted = null; // { text, at }
+    let waiting = [];
+    addEventListener("keydown", (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === "v") e.preventDefault = () => {};
+    }, true);
+    document.addEventListener("paste", (e) => {
+      const text = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
+      e.preventDefault();
+      pasted = { text, at: performance.now() };
+      const w = waiting; waiting = [];
+      for (const resolve of w) resolve(text);
+    });
+    window.icedClipboardRead = () => {
+      if (pasted && performance.now() - pasted.at < 1000) {
+        const { text } = pasted; pasted = null;
+        return Promise.resolve(text);
+      }
+      // The app may ask before the browser's paste event arrives: give it a moment.
+      return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => {
+          waiting = waiting.filter((w) => w !== done);
+          if (navigator.clipboard && navigator.clipboard.readText) navigator.clipboard.readText().then(resolve, reject);
+          else reject(new Error("clipboard unavailable"));
+        }, 250);
+        const done = (text) => { clearTimeout(timer); pasted = null; resolve(text); };
+        waiting.push(done);
+      });
+    };
+  })();
+</script>
 <script type="module">
   import init from "./pkg/halloy.js";
   const network = document.querySelector('meta[name="halloy-network"]')?.content;

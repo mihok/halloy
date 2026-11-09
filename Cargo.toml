@@ -224,6 +224,10 @@ iced = { git = "https://github.com/squidowl/iced", rev = "138b1d0ddc86e108f7d4f2
 iced_core = { git = "https://github.com/squidowl/iced", rev = "138b1d0ddc86e108f7d4f25765afca126a8dc166" }
 iced_wgpu = { git = "https://github.com/squidowl/iced", rev = "138b1d0ddc86e108f7d4f25765afca126a8dc166" }
 
+# iced_winit with web clipboard support (vendor/iced_winit/Cargo.toml).
+[patch."https://github.com/squidowl/iced"]
+iced_winit = { path = "vendor/iced_winit" }
+
 [patch."https://github.com/hecrj/cosmic-text.git"]
 cosmic-text = { git = "https://github.com/squidowl/cosmic-text", rev = "f959ab5f753a911ce3c3649c22494b07da5d5340" }
 

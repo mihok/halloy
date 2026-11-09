@@ -1,0 +1,295 @@
+//! Access the clipboard.
+use crate::core::clipboard::{ClipboardKind, Content, Error, Kind};
+
+pub use platform::*;
+
+impl Default for Clipboard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+mod platform {
+    #[cfg(all(
+        unix,
+        not(any(target_os = "macos", target_os = "android", target_os = "emscripten")),
+    ))]
+    use arboard::{GetExtLinux, SetExtLinux};
+
+    use super::*;
+
+    use std::sync::{Arc, Mutex};
+    use std::thread;
+
+    /// A buffer for short-term storage and transfer within and between
+    /// applications.
+    pub struct Clipboard {
+        state: State,
+    }
+
+    enum State {
+        Connected {
+            clipboard: Arc<Mutex<arboard::Clipboard>>,
+        },
+        Unavailable,
+    }
+
+    impl Clipboard {
+        /// Creates a new [`Clipboard`] for the given window.
+        pub fn new() -> Self {
+            let clipboard = arboard::Clipboard::new();
+
+            let state = match clipboard {
+                Ok(clipboard) => State::Connected {
+                    clipboard: Arc::new(Mutex::new(clipboard)),
+                },
+                Err(_) => State::Unavailable,
+            };
+
+            Clipboard { state }
+        }
+
+        /// Reads the current content of the [`Clipboard`] as text.
+        pub fn read(
+            &self,
+            clipboard_kind: ClipboardKind,
+            kind: Kind,
+            callback: impl FnOnce(Result<Content, Error>) + Send + 'static,
+        ) {
+            let State::Connected { clipboard } = &self.state else {
+                callback(Err(Error::ClipboardUnavailable));
+                return;
+            };
+
+            let clipboard = clipboard.clone();
+
+            let _ = thread::spawn(move || {
+                let Ok(mut clipboard) = clipboard.lock() else {
+                    callback(Err(Error::ClipboardUnavailable));
+                    return;
+                };
+
+                #[cfg(all(
+                    unix,
+                    not(any(
+                        target_os = "macos",
+                        target_os = "android",
+                        target_os = "emscripten"
+                    )),
+                ))]
+                let get = clipboard.get().clipboard(match clipboard_kind {
+                    ClipboardKind::Standard => arboard::LinuxClipboardKind::Clipboard,
+                    ClipboardKind::Primary => arboard::LinuxClipboardKind::Primary,
+                });
+
+                #[cfg(not(all(
+                    unix,
+                    not(any(
+                        target_os = "macos",
+                        target_os = "android",
+                        target_os = "emscripten"
+                    )),
+                )))]
+                let get = clipboard.get();
+
+                let result = match kind {
+                    Kind::Text => get.text().map(Content::Text),
+                    Kind::Html => get.html().map(Content::Html),
+                    #[cfg(feature = "image")]
+                    Kind::Image => get.image().map(|image| {
+                        let rgba = crate::core::Bytes::from_owner(image.bytes);
+                        let size = crate::core::Size {
+                            width: image.width as u32,
+                            height: image.height as u32,
+                        };
+
+                        Content::Image(crate::core::clipboard::Image { rgba, size })
+                    }),
+                    Kind::Files => get.file_list().map(Content::Files),
+                    kind => {
+                        log::warn!("unsupported clipboard kind: {kind:?}");
+
+                        Err(arboard::Error::ContentNotAvailable)
+                    }
+                }
+                .map_err(to_error);
+
+                callback(result);
+            });
+        }
+
+        /// Writes the given text contents to the [`Clipboard`].
+        pub fn write(
+            &mut self,
+            clipboard_kind: ClipboardKind,
+            content: Content,
+            callback: impl FnOnce(Result<(), Error>) + Send + 'static,
+        ) {
+            let State::Connected { clipboard } = &self.state else {
+                callback(Err(Error::ClipboardUnavailable));
+                return;
+            };
+
+            let clipboard = clipboard.clone();
+
+            let _ = thread::spawn(move || {
+                let Ok(mut clipboard) = clipboard.lock() else {
+                    callback(Err(Error::ClipboardUnavailable));
+                    return;
+                };
+
+                #[cfg(all(
+                    unix,
+                    not(any(
+                        target_os = "macos",
+                        target_os = "android",
+                        target_os = "emscripten"
+                    )),
+                ))]
+                let set = clipboard.set().clipboard(match clipboard_kind {
+                    ClipboardKind::Standard => arboard::LinuxClipboardKind::Clipboard,
+                    ClipboardKind::Primary => arboard::LinuxClipboardKind::Primary,
+                });
+
+                #[cfg(not(all(
+                    unix,
+                    not(any(
+                        target_os = "macos",
+                        target_os = "android",
+                        target_os = "emscripten"
+                    )),
+                )))]
+                let set = clipboard.set();
+
+                let result = match content {
+                    Content::Text(text) => set.text(text),
+                    Content::Html(html) => set.html(html, None),
+                    #[cfg(feature = "image")]
+                    Content::Image(image) => set.image(arboard::ImageData {
+                        bytes: image.rgba.as_ref().into(),
+                        width: image.size.width as usize,
+                        height: image.size.height as usize,
+                    }),
+                    Content::Files(files) => set.file_list(&files),
+                    content => {
+                        log::warn!("unsupported clipboard content: {content:?}");
+
+                        Err(arboard::Error::ClipboardNotSupported)
+                    }
+                }
+                .map_err(to_error);
+
+                callback(result);
+            });
+        }
+    }
+
+    fn to_error(error: arboard::Error) -> Error {
+        match error {
+            arboard::Error::ContentNotAvailable => Error::ContentNotAvailable,
+            arboard::Error::ClipboardNotSupported => Error::ClipboardUnavailable,
+            arboard::Error::ClipboardOccupied => Error::ClipboardOccupied,
+            arboard::Error::ConversionFailure => Error::ConversionFailure,
+            arboard::Error::Unknown { description } => Error::Unknown {
+                description: Arc::new(description),
+            },
+            error => Error::Unknown {
+                description: Arc::new(error.to_string()),
+            },
+        }
+    }
+}
+
+// Web: the browser's asynchronous Clipboard API. Reads go through
+// `window.icedClipboardRead()` when the host page defines it (it can hand over
+// text from the browser's own paste event, which needs no permission prompt;
+// see halloy's web/app/index.html), else `navigator.clipboard.readText()`.
+#[cfg(target_arch = "wasm32")]
+mod platform {
+    use super::*;
+
+    use wasm_bindgen::{JsCast, JsValue};
+    use wasm_bindgen_futures::{JsFuture, spawn_local};
+
+    /// A buffer for short-term storage and transfer within and between
+    /// applications.
+    pub struct Clipboard;
+
+    impl Clipboard {
+        /// Creates a new [`Clipboard`] for the given window.
+        pub fn new() -> Self {
+            Self
+        }
+
+        /// Reads the current content of the [`Clipboard`] as text.
+        pub fn read(
+            &self,
+            clipboard_kind: ClipboardKind,
+            kind: Kind,
+            callback: impl FnOnce(Result<Content, Error>) + 'static,
+        ) {
+            // Browsers have no primary selection, and only text is supported.
+            if clipboard_kind != ClipboardKind::Standard || kind != Kind::Text {
+                callback(Err(Error::ContentNotAvailable));
+                return;
+            }
+            let Some(promise) = read_promise() else {
+                callback(Err(Error::ClipboardUnavailable));
+                return;
+            };
+            spawn_local(async move {
+                let result = match JsFuture::from(promise).await {
+                    Ok(text) => text
+                        .as_string()
+                        .map(Content::Text)
+                        .ok_or(Error::ContentNotAvailable),
+                    Err(_) => Err(Error::ClipboardUnavailable),
+                };
+                callback(result);
+            });
+        }
+
+        /// Writes the given text contents to the [`Clipboard`].
+        pub fn write(
+            &mut self,
+            clipboard_kind: ClipboardKind,
+            content: Content,
+            callback: impl FnOnce(Result<(), Error>) + 'static,
+        ) {
+            if clipboard_kind != ClipboardKind::Standard {
+                callback(Err(Error::ClipboardUnavailable));
+                return;
+            }
+            let text = match content {
+                Content::Text(text) | Content::Html(text) => text,
+                _ => {
+                    callback(Err(Error::ConversionFailure));
+                    return;
+                }
+            };
+            let Some(window) = web_sys::window() else {
+                callback(Err(Error::ClipboardUnavailable));
+                return;
+            };
+            let promise = window.navigator().clipboard().write_text(&text);
+            spawn_local(async move {
+                callback(
+                    JsFuture::from(promise)
+                        .await
+                        .map(|_| ())
+                        .map_err(|_| Error::ClipboardUnavailable),
+                );
+            });
+        }
+    }
+
+    fn read_promise() -> Option<js_sys::Promise> {
+        let window = web_sys::window()?;
+        let hook = js_sys::Reflect::get(&window, &JsValue::from_str("icedClipboardRead")).ok()?;
+        if let Some(hook) = hook.dyn_ref::<js_sys::Function>() {
+            return hook.call0(&window).ok()?.dyn_into::<js_sys::Promise>().ok();
+        }
+        Some(window.navigator().clipboard().read_text())
+    }
+}
