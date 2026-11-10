@@ -17,6 +17,33 @@
   html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
   #iced { width: 100%; height: 100%; }
   #loading { position: fixed; inset: 0; display: grid; place-items: center; color: var(--fg); font: 14px system-ui, sans-serif; }
+
+  /* The stream player (see the script below): a floating Twitch player over the chat. */
+  :root { --sp-bg: #f3f1ec; --sp-line: #d8d2c6; --sp-fg: #1c024f; --sp-muted: #5e5a6e; --sp-hover: #e2ded5; --sp-pill-bg: #1c024f; --sp-pill-fg: #fbfaf7; }
+  @media (prefers-color-scheme: dark) { :root { --sp-bg: #0b0b10; --sp-line: #2a2a36; --sp-fg: #e8e6f0; --sp-muted: #a3a1b5; --sp-hover: #22222c; --sp-pill-bg: #1c024f; --sp-pill-fg: #e8e6f0; } }
+  #stream-player { position: fixed; z-index: 10; display: none; flex-direction: column; box-sizing: border-box;
+    width: 400px; height: 262px; min-width: 240px; min-height: 120px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px);
+    resize: both; overflow: hidden; border-radius: 10px; border: 1px solid var(--sp-line); background: var(--sp-bg); color: var(--sp-fg);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .35); font: 12px/1.2 system-ui, sans-serif; }
+  #stream-player.open { display: flex; }
+  #stream-player.collapsed { height: auto !important; min-height: 0; resize: none; }
+  #stream-player.collapsed .sp-video { display: none; }
+  .sp-bar { display: flex; align-items: center; gap: 6px; padding: 5px 5px 5px 10px; cursor: grab; user-select: none; touch-action: none; }
+  .sp-bar:active { cursor: grabbing; }
+  .sp-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: #e5484d; }
+  .sp-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sp-title b { font-weight: 600; }
+  .sp-title span { color: var(--sp-muted); }
+  .sp-bar button { flex: none; display: grid; place-items: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px;
+    background: transparent; color: var(--sp-muted); font: 15px/1 system-ui, sans-serif; cursor: pointer; }
+  .sp-bar button:hover { background: var(--sp-hover); color: var(--sp-fg); }
+  .sp-bar button:focus-visible, #stream-watch:focus-visible { outline: 2px solid #764acb; outline-offset: 1px; }
+  .sp-video { flex: 1; min-height: 0; background: #000; }
+  .sp-video iframe { display: block; width: 100%; height: 100%; border: 0; }
+  #stream-watch { position: fixed; z-index: 10; right: 16px; bottom: 64px; display: none; align-items: center; gap: 7px;
+    padding: 7px 12px 7px 10px; border: 0; border-radius: 999px; background: var(--sp-pill-bg); color: var(--sp-pill-fg);
+    font: 600 12px/1 system-ui, sans-serif; box-shadow: 0 6px 18px rgba(0, 0, 0, .3); cursor: pointer; }
+  #stream-watch.open { display: inline-flex; }
 </style>
 </head>
 <body>
@@ -76,6 +103,165 @@
         waiting.push(done);
       });
     };
+  })();
+</script>
+<script>
+  // Stream player: while the bridged channel is the one you're looking at and its
+  // Twitch stream is live, a small Twitch player floats over the chat. Set up by
+  // the hosting site (meta halloy-stream-channel / -twitch / -status); without
+  // those, nothing here runs. Nothing is loaded from Twitch until it's shown.
+  // The focused buffer comes from the canvas's `alt`, where winit puts the
+  // window title ("#stream – Halloy").
+  (() => {
+    const meta = (n) => document.querySelector(`meta[name="${n}"]`)?.content;
+    const ircChannel = meta("halloy-stream-channel");
+    const twitch = meta("halloy-stream-twitch");
+    const statusUrl = meta("halloy-stream-status");
+    if (!ircChannel || !twitch || !statusUrl || !/^[a-z0-9_]{2,25}$/.test(twitch)) return;
+
+    const KEY = "halloy-stream-player";
+    const saved = (() => { try { return JSON.parse(localStorage.getItem(KEY) || "null") || {}; } catch { return {}; } })();
+    const save = () => {
+      // Hidden, it measures as 0x0 at the corner: don't remember that.
+      if (!player.classList.contains("open")) return;
+      const r = player.getBoundingClientRect();
+      const v = { left: r.left, top: r.top, width: player.offsetWidth, height: collapsed ? saved.height : player.offsetHeight, collapsed };
+      Object.assign(saved, v);
+      try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch {}
+    };
+
+    let inChannel = false, live = false, closed = false, collapsed = !!saved.collapsed, poppedOut = null, poll = null;
+
+    const player = document.createElement("section");
+    player.id = "stream-player";
+    player.setAttribute("aria-label", "Live stream");
+    player.innerHTML = `<div class="sp-bar"><span class="sp-dot" aria-hidden="true"></span>
+      <span class="sp-title"><b>LIVE</b> <span>twitch.tv/${twitch}</span></span>
+      <button type="button" data-act="popout" title="Pop out (stays on top of other windows)" aria-label="Pop out">⧉</button>
+      <button type="button" data-act="collapse" title="Collapse" aria-label="Collapse">–</button>
+      <button type="button" data-act="close" title="Close" aria-label="Close">×</button></div>
+      <div class="sp-video"></div>`;
+    const bar = player.querySelector(".sp-bar");
+    const video = player.querySelector(".sp-video");
+    const popBtn = player.querySelector('[data-act="popout"]');
+    if (!("documentPictureInPicture" in window)) popBtn.remove();
+
+    const pill = document.createElement("button");
+    pill.id = "stream-watch";
+    pill.type = "button";
+    pill.innerHTML = `<span class="sp-dot" aria-hidden="true"></span>Watch stream`;
+
+    const clamp = () => {
+      const r = player.getBoundingClientRect();
+      const left = Math.min(Math.max(0, r.left), Math.max(0, innerWidth - r.width));
+      const top = Math.min(Math.max(0, r.top), Math.max(0, innerHeight - r.height));
+      player.style.left = `${left}px`; player.style.top = `${top}px`;
+    };
+    const place = () => {
+      if (saved.width) player.style.width = `${saved.width}px`;
+      if (saved.height && !collapsed) player.style.height = `${saved.height}px`;
+      const w = player.offsetWidth || 400, h = player.offsetHeight || 262;
+      // Default: bottom right, above the message input and clear of the nick list.
+      player.style.left = `${saved.left ?? innerWidth - w - 96}px`;
+      player.style.top = `${saved.top ?? innerHeight - h - 72}px`;
+      clamp();
+    };
+
+    const iframe = () => {
+      const f = document.createElement("iframe");
+      f.src = `https://player.twitch.tv/?channel=${twitch}&parent=${location.hostname}&autoplay=true&muted=true`;
+      f.allow = "autoplay; fullscreen; picture-in-picture";
+      f.allowFullscreen = true;
+      f.title = `twitch.tv/${twitch} live stream`;
+      return f;
+    };
+
+    const render = () => {
+      const show = inChannel && live && !closed && !poppedOut;
+      player.classList.toggle("open", show);
+      player.classList.toggle("collapsed", collapsed);
+      pill.classList.toggle("open", inChannel && live && closed && !poppedOut);
+      if (show && !video.firstChild) video.append(iframe());
+      // Not shown: unload the player, so nothing keeps playing or loading. (Collapsed
+      // keeps it, so you can still listen.)
+      if (!show && video.firstChild) video.replaceChildren();
+      if (show) place();
+    };
+
+    const check = async () => {
+      try {
+        const res = await fetch(statusUrl, { credentials: "same-origin", cache: "no-store" });
+        if (res.ok) live = (await res.json()).live === true;
+      } catch {}
+      render();
+    };
+
+    const onTitle = (title) => {
+      const name = (title || "").replace(/ – Halloy$/, "").trim();
+      const now = name.toLowerCase() === ircChannel.toLowerCase();
+      if (now === inChannel) return;
+      inChannel = now;
+      clearInterval(poll); poll = null;
+      if (inChannel) { check(); poll = setInterval(check, 60_000); }
+      render();
+    };
+
+    // Dragging by the bar.
+    let drag = null;
+    bar.addEventListener("pointerdown", (e) => {
+      if (e.button !== 0 || e.target.closest("button")) return;
+      const r = player.getBoundingClientRect();
+      drag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+      bar.setPointerCapture(e.pointerId);
+      video.style.pointerEvents = "none";
+    });
+    bar.addEventListener("pointermove", (e) => {
+      if (!drag) return;
+      player.style.left = `${e.clientX - drag.dx}px`; player.style.top = `${e.clientY - drag.dy}px`;
+      clamp();
+    });
+    const endDrag = () => { if (!drag) return; drag = null; video.style.pointerEvents = ""; save(); };
+    bar.addEventListener("pointerup", endDrag);
+    bar.addEventListener("pointercancel", endDrag);
+    // Resizing (the corner handle) is remembered too.
+    let resizeTimer;
+    new ResizeObserver(() => { if (!player.classList.contains("open") || collapsed) return; clearTimeout(resizeTimer); resizeTimer = setTimeout(save, 300); }).observe(player);
+    addEventListener("resize", () => { if (player.classList.contains("open")) clamp(); });
+
+    player.addEventListener("click", async (e) => {
+      const act = e.target.closest("button")?.dataset.act;
+      if (act === "close") { closed = true; render(); pill.focus(); }
+      else if (act === "collapse") { collapsed = !collapsed; render(); save(); }
+      else if (act === "popout" && "documentPictureInPicture" in window) {
+        const w = await window.documentPictureInPicture.requestWindow({ width: Math.max(320, player.offsetWidth), height: Math.max(180, player.offsetWidth * 9 / 16) });
+        w.document.title = `twitch.tv/${twitch}`;
+        w.document.body.style.cssText = "margin:0;background:#000;height:100vh";
+        const f = iframe();
+        f.style.cssText = "display:block;width:100%;height:100%;border:0";
+        w.document.body.append(f);
+        poppedOut = w;
+        render();
+        w.addEventListener("pagehide", () => { poppedOut = null; render(); });
+      }
+    });
+    pill.addEventListener("click", () => { closed = false; render(); });
+
+    document.body.append(player, pill);
+
+    // Follow the app's focused buffer.
+    const watchCanvas = (canvas) => {
+      onTitle(canvas.getAttribute("alt"));
+      new MutationObserver(() => onTitle(canvas.getAttribute("alt"))).observe(canvas, { attributes: true, attributeFilter: ["alt"] });
+    };
+    const found = document.querySelector("canvas");
+    if (found) watchCanvas(found);
+    else {
+      const mo = new MutationObserver(() => {
+        const c = document.querySelector("canvas");
+        if (c) { mo.disconnect(); watchCanvas(c); }
+      });
+      mo.observe(document.body, { childList: true, subtree: true });
+    }
   })();
 </script>
 <script type="module">
