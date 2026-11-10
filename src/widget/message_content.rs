@@ -203,6 +203,19 @@ fn message_content_impl<'a, T: Copy + 'a, M: 'a + std::clone::Clone>(
                             }
                         };
 
+                        // A nick right after a standalone "@" (an @mention) is bold.
+                        let at_mention = index
+                            .checked_sub(1)
+                            .and_then(|i| fragments.get(i))
+                            .is_some_and(ends_with_at_mention_marker);
+                        let nick_font = |theme: &Theme| {
+                            if at_mention {
+                                Some(font::get(data::appearance::theme::FontStyle::Bold))
+                            } else {
+                                theme.styles().buffer.nickname.font_style.map(font::get)
+                            }
+                        };
+
                         let is_focused = Some(index) == focused_fragment_index;
                         let focus_border =
                             is_focused.then_some(theme::focus_border(theme));
@@ -255,14 +268,7 @@ fn message_content_impl<'a, T: Copy + 'a, M: 'a + std::clone::Clone>(
                                 let color = color_from_user(user);
 
                                 span(text)
-                                    .font_maybe(
-                                        theme
-                                            .styles()
-                                            .buffer
-                                            .nickname
-                                            .font_style
-                                            .map(font::get),
-                                    )
+                                    .font_maybe(nick_font(theme))
                                     .color(transform_color(color))
                                     .border_maybe(focus_border)
                                     .background_maybe(focus_background)
@@ -278,14 +284,7 @@ fn message_content_impl<'a, T: Copy + 'a, M: 'a + std::clone::Clone>(
                                 let color = color_from_user(user);
 
                                 span(text)
-                                    .font_maybe(
-                                        theme
-                                            .styles()
-                                            .buffer
-                                            .nickname
-                                            .font_style
-                                            .map(font::get),
-                                    )
+                                    .font_maybe(nick_font(theme))
                                     .color(transform_color(color))
                                     .background(theme.styles().buffer.highlight)
                                     .link(message::Link::User(
@@ -505,4 +504,17 @@ fn leading_nick_offsets<'a>(
         }
         _ => (0, None),
     }
+}
+
+/// Whether `fragment` ends in an "@" that starts a mention: at the start of the text or
+/// after whitespace, so "me@host" isn't one.
+fn ends_with_at_mention_marker(fragment: &data::message::Fragment) -> bool {
+    let text = match fragment {
+        data::message::Fragment::Text(text)
+        | data::message::Fragment::Formatted { text, .. }
+        | data::message::Fragment::HighlightMatch(text) => text.as_str(),
+        _ => return false,
+    };
+    text.strip_suffix('@')
+        .is_some_and(|rest| rest.is_empty() || rest.ends_with(char::is_whitespace))
 }

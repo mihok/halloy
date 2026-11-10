@@ -321,6 +321,7 @@ impl Entry {
             } => {
                 let autocomplete = &config.buffer.text_input.autocomplete;
                 let is_channel = next.starts_with(chantypes);
+                let is_mention = next.starts_with('@');
 
                 // If next is not the original prompt, then append the
                 // configured suffix
@@ -328,6 +329,7 @@ impl Entry {
                     if input.trim_end().find(' ').is_none_or(|space_position| {
                         cursor_position <= space_position
                     }) && !is_channel
+                        && !is_mention
                     {
                         // If completed at the beginning of the input line and
                         // not a channel.
@@ -2024,20 +2026,29 @@ enum Words {
         show_picker: bool,
         highlighted: Option<usize>,
         filtered: Vec<String>,
+        /// Completing an `@nick` mention: the picker shows as soon as you type, with
+        /// the first match highlighted, and Tab/Enter insert the highlighted one.
+        mention: bool,
     },
     Selected,
 }
 
 impl Words {
-    fn set_selecting(&mut self, prompt: String, filtered: Vec<String>) {
+    fn set_selecting(
+        &mut self,
+        prompt: String,
+        filtered: Vec<String>,
+        mention: bool,
+    ) {
         if filtered.is_empty() {
             *self = Self::Idle;
         } else {
             *self = Self::Selecting {
                 prompt,
-                show_picker: false,
-                highlighted: None,
+                show_picker: mention,
+                highlighted: mention.then_some(0),
                 filtered,
+                mention,
             };
         }
     }
@@ -2100,7 +2111,13 @@ impl Words {
             return;
         };
 
-        let nick = casemapping.normalize(word);
+        // "@ni" completes to "@nick" (the "@" is kept); "ni" to "nick" as before.
+        let (mention, query) = match word.strip_prefix('@') {
+            Some(query) => (true, query),
+            None => (false, word),
+        };
+
+        let nick = casemapping.normalize(query);
 
         let filtered = users
             .into_iter()
@@ -2165,10 +2182,16 @@ impl Words {
                     }
                 }
             })
-            .map(|user| user.nickname().to_string())
+            .map(|user| {
+                if mention {
+                    format!("@{}", user.nickname())
+                } else {
+                    user.nickname().to_string()
+                }
+            })
             .collect();
 
-        self.set_selecting(word.to_string(), filtered);
+        self.set_selecting(word.to_string(), filtered, mention);
     }
 
     fn process_channels<'a>(
@@ -2225,7 +2248,7 @@ impl Words {
                 .map(ToString::to_string)
                 .collect();
 
-            self.set_selecting(input_channel.to_string(), filtered);
+            self.set_selecting(input_channel.to_string(), filtered, false);
 
             matches!(self, Self::Selecting { .. })
         } else {
@@ -2235,10 +2258,26 @@ impl Words {
 
     fn tab(&mut self, reverse: bool) -> Option<Entry> {
         if let Self::Selecting {
+            filtered,
+            mention: true,
+            ..
+        } = self
+            && !reverse
+            && !filtered.is_empty()
+        {
+            // Like the picker in most chat apps: Tab takes the highlighted name.
+            return self.select().map(|next| Entry::Word {
+                next,
+                append_suffix: true,
+            });
+        }
+
+        if let Self::Selecting {
             prompt,
             show_picker,
             highlighted,
             filtered,
+            ..
         } = self
         {
             if filtered.is_empty() {
@@ -2356,8 +2395,9 @@ impl Words {
                 show_picker: true,
                 highlighted,
                 filtered,
+                mention,
                 ..
-            } if filtered.len() > 1 => {
+            } if filtered.len() > 1 || *mention => {
                 let skip = {
                     let index = if let Some(index) = highlighted {
                         *index
